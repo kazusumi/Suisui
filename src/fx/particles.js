@@ -269,6 +269,7 @@ export function createShafts(maxCount) {
       varying float vA;
       varying float vPh;
       varying float vW;
+      varying vec3 vWP;
       void main(){
         vec3 b = position;
         // slow drift so the pattern of beams keeps changing
@@ -286,7 +287,8 @@ export function createShafts(maxCount) {
         float side = 1.0 - abs(dot(toC, A));
         vA = (1.0 - smoothstep(uR * 0.55, uR * 0.95, d)) * (0.55 + 0.45 * sin(uTime * 0.5 + aParams.z)) * aParams.w * smoothstep(0.0, 0.35, side);
         // light dies out with depth, and beams right in front of the lens fade away
-        vA *= exp(P.y * 0.07) * smoothstep(2.0, 7.0, length(P - cameraPosition));
+        vA *= exp(P.y * 0.07);
+        vWP = P;
         vC = aCorner;
         vPh = aParams.z;
         vW = aParams.x;
@@ -300,13 +302,16 @@ export function createShafts(maxCount) {
       varying float vA;
       varying float vPh;
       varying float vW;
+      varying vec3 vWP;
       void main(){
+        // swimming into a beam: it thins out instead of whiting out the screen
+        float near = smoothstep(2.5, 12.0, length(vWP - cameraPosition));
         float along = pow(1.0 - vC.y, 1.3);
         float across = sin(vC.x * 3.14159);
         // streaks inside the beam, drifting sideways
         float streak = 0.55 + 0.45 * sin(vC.x * (6.0 + vW) + uTime * 0.7 + vPh) * sin(vC.x * 13.0 - uTime * 0.45 + vPh * 2.0);
-        float a = along * across * across * vA * uUnder * streak;
-        gl_FragColor = vec4(vec3(0.5, 0.78, 0.62) * a * 0.3, 1.0);
+        float a = along * across * across * vA * uUnder * streak * near;
+        gl_FragColor = vec4(vec3(0.5, 0.78, 0.62) * a * 0.22, 1.0);
       }
     `,
     transparent: true,

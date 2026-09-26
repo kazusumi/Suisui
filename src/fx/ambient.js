@@ -18,6 +18,17 @@ const _zero = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _c = new THREE.Color();
 
+// Is a world point in front of the camera (inside a generous view cone)?
+function inView(p, cam, fwd3) {
+  _v.subVectors(p, cam);
+  const d = _v.length();
+  if (d < 0.001) return true;
+  return _v.dot(fwd3) / d > 0.35; // ~70 degrees either side of the view direction
+}
+// Far enough that the underwater haze hides it
+const HIDDEN_DIST = 30;
+const FADE_IN = 2.5;
+
 function paint(geo, fn) {
   geo = geo.index ? geo.toNonIndexed() : geo;
   const p = geo.attributes.position;
@@ -106,17 +117,17 @@ class Species {
     this.mesh.frustumCulled = false;
     this.items = [];
     for (let i = 0; i < cfg.count; i++) {
-      this.items.push({ p: new THREE.Vector3(), h: new THREE.Vector3(1, 0, 0), alive: false, wait: Math.random() * 2, floor: -99, k: i, sc: 1, ph: Math.random() * 100 });
+      this.items.push({ p: new THREE.Vector3(), h: new THREE.Vector3(1, 0, 0), alive: false, wait: Math.random() * 2, floor: -99, k: i, sc: 1, ph: Math.random() * 100, age: 0 });
       if (cfg.colors) this.mesh.setColorAt(i, _c.set(cfg.colors[i % cfg.colors.length]));
       this.mesh.setMatrixAt(i, _m.makeScale(0, 0, 0));
     }
     this.active = cfg.count;
   }
 
-  pickSpot(cam, fwd, out) {
-    for (let tries = 0; tries < 5; tries++) {
-      let a = Math.random() * Math.PI * 2;
-      if (Math.random() < 0.7) a = Math.atan2(fwd.z, fwd.x) + (Math.random() - 0.5) * 2.2;
+  // Spawn only where the swimmer can't see it happen: outside the view, or deep in the haze.
+  pickSpot(cam, fwd, out, fwd3) {
+    for (let tries = 0; tries < 8; tries++) {
+      const a = Math.random() * Math.PI * 2;
       const r = this.rMin + Math.random() * (this.rMax - this.rMin);
       const x = cam.x + Math.cos(a) * r;
       const z = cam.z + Math.sin(a) * r;
@@ -124,6 +135,7 @@ class Species {
       if (this.bottom) {
         if (floor > -1.5 || floor < this.yMin || floor > this.yMax) continue;
         out.set(x, floor + 0.08, z);
+        if (inView(out, cam, fwd3) && r < HIDDEN_DIST) continue;
         return true;
       }
       const lo = Math.max(this.yMin, floor + 1.0);
@@ -132,12 +144,13 @@ class Species {
       // bias towards the camera's own depth so they are actually seen
       const cy = THREE.MathUtils.clamp(cam.y + (Math.random() - 0.5) * 10, lo, hi);
       out.set(x, Math.random() < 0.6 ? cy : lo + Math.random() * (hi - lo), z);
+      if (inView(out, cam, fwd3) && out.distanceTo(cam) < HIDDEN_DIST) continue;
       return true;
     }
     return false;
   }
 
-  update(dt, t, cam, fwd, frame) {
+  update(dt, t, cam, fwd, frame, fwd3) {
     const n = this.active;
     for (let i = 0; i < this.items.length; i++) {
       const c = this.items[i];
@@ -151,9 +164,13 @@ class Species {
       if (!c.alive) {
         c.wait -= dt;
         if (c.wait > 0) continue;
-        // members of a group spawn around their leader
+        // members of a group only appear together with their leader (never pop in beside it later)
         const lead = this.group > 1 ? this.items[i - (i % this.group)] : null;
-        if (lead && lead !== c && lead.alive) {
+        if (lead && lead !== c) {
+          if (!lead.alive || lead.age > 0.3) {
+            c.wait = 0.5;
+            continue;
+          }
           c.p.copy(lead.p).add(_v.set((Math.random() - 0.5) * this.spread, (Math.random() - 0.5) * this.spread * 0.4, (Math.random() - 0.5) * this.spread));
           c.h.copy(lead.h);
         } else {
@@ -161,7 +178,7 @@ class Species {
             c.wait = 4 + Math.random() * 6;
             continue;
           }
-          if (!this.pickSpot(cam, fwd, c.p)) {
+          if (!this.pickSpot(cam, fwd, c.p, fwd3)) {
             c.wait = 1 + Math.random();
             continue;
           }
@@ -169,13 +186,16 @@ class Species {
           c.h.set(Math.cos(a), (Math.random() - 0.5) * 0.1, Math.sin(a)).normalize();
         }
         c.alive = true;
+        c.age = 0;
         c.sc = (this.scale || 1) * (0.8 + Math.random() * 0.4);
         c.floor = terrainHeight(c.p.x, c.p.z);
       }
-      // too far away (or somewhere it doesn't belong) -> respawn later
+      c.age += dt;
+      // far away and out of sight -> recycle it (never vanish in plain view)
       const dx = c.p.x - cam.x;
       const dz = c.p.z - cam.z;
-      if (dx * dx + dz * dz > this.rMax * this.rMax * 1.6) {
+      const d2 = dx * dx + dz * dz;
+      if (d2 > this.rMax * this.rMax * 1.6 && (d2 > 60 * 60 || !inView(c.p, cam, fwd3))) {
         c.alive = false;
         c.wait = Math.random() * 1.5;
         this.mesh.setMatrixAt(i, _m.makeScale(0, 0, 0));
@@ -208,7 +228,9 @@ class Species {
       }
       _m.lookAt(c.h, _zero, _up);
       _q.setFromRotationMatrix(_m);
-      _m.compose(c.p, _q, _s.setScalar(c.sc));
+      // grow in gently as a last safety net
+      const g = Math.min(c.age / FADE_IN, 1);
+      _m.compose(c.p, _q, _s.setScalar(c.sc * g * g * (3 - 2 * g)));
       this.mesh.setMatrixAt(i, _m);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
@@ -237,20 +259,24 @@ class BaitBall {
   update(dt, t, cam, fwd) {
     const dx = this.center.x - cam.x;
     const dz = this.center.z - cam.z;
+    this.age = (this.age || 0) + dt;
     if (dx * dx + dz * dz > 70 * 70 && cam.y < 0) {
-      // move the ball somewhere ahead with enough depth
-      for (let k = 0; k < 6; k++) {
-        const a = Math.atan2(fwd.z, fwd.x) + (Math.random() - 0.5) * 1.6;
-        const r = 25 + Math.random() * 20;
+      // move the ball somewhere nearby with enough depth, but out of view
+      for (let k = 0; k < 10; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 32 + Math.random() * 15;
         const x = cam.x + Math.cos(a) * r;
         const z = cam.z + Math.sin(a) * r;
         const fl = terrainHeight(x, z);
-        if (fl < -9) {
-          this.center.set(x, THREE.MathUtils.clamp(cam.y, fl + 5, -4), z);
+        _f.set(x, THREE.MathUtils.clamp(cam.y, fl + 5, -4), z);
+        if (fl < -9 && !inView(_f, cam, this.fwd3)) {
+          this.center.copy(_f);
+          this.age = 0;
           break;
         }
       }
     }
+    const grow = Math.min(this.age / 4, 1);
     // the ball opens up around the swimmer
     const d = cam.distanceTo(this.center);
     this.hole += ((d < 7 ? 1 : 0) - this.hole) * Math.min(dt * 2, 1);
@@ -268,7 +294,7 @@ class BaitBall {
       _f.set(-Math.sin(f.a), Math.cos(t * 0.5 + f.ph) * 0.05, Math.cos(f.a));
       _m.lookAt(_f, _zero, _up);
       _q.setFromRotationMatrix(_m);
-      _m.compose(_v, _q, _s.setScalar(0.42));
+      _m.compose(_v, _q, _s.setScalar(0.42 * grow));
       this.mesh.setMatrixAt(i, _m);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
@@ -332,7 +358,7 @@ function jellyGeo() {
 // ---------------- glowing points: firefly squid swarms, lures, deep plankton ----------------
 function glowPointsMaterial(size, blink) {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: U.uTime, uScale: glowScale, uSize: { value: size }, uBlink: { value: blink } },
+    uniforms: { uTime: U.uTime, uScale: glowScale, uSize: { value: size }, uBlink: { value: blink }, uFade: { value: 1 } },
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
       attribute float aSeed;
@@ -340,11 +366,12 @@ function glowPointsMaterial(size, blink) {
       uniform float uScale;
       uniform float uSize;
       uniform float uBlink;
+      uniform float uFade;
       varying vec3 vC;
       void main(){
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float b = mix(1.0, 0.25 + 0.75 * smoothstep(-0.2, 0.8, sin(uTime * (1.3 + aSeed * 2.0) + aSeed * 40.0)), uBlink);
-        vC = aColor * b;
+        vC = aColor * b * uFade;
         gl_PointSize = clamp(uSize * uScale / -mv.z, 1.5, 40.0);
         gl_Position = projectionMatrix * mv;
       }
@@ -401,9 +428,9 @@ export class Ambient {
     this.species = [];
 
     // shallow & mid water
-    S({ name: 'tropical', geo: fg, mat: fishMat('tropical'), count: 96, group: 8, spread: 3, yMin: -12, yMax: -0.8, speed: 1.6, scale: 0.45, flee: 3.5, rMin: 6, rMax: 30,
+    S({ name: 'tropical', geo: fg, mat: fishMat('tropical'), count: 72, group: 8, spread: 3, yMin: -12, yMax: -0.8, speed: 1.6, scale: 0.45, flee: 3.5, rMin: 8, rMax: 40,
       colors: ['#ff8a2a', '#ffd23a', '#2f7fe0', '#ff5a8a', '#45d0c8', '#ffffff', '#a86bff', '#ffb0d0'] });
-    S({ name: 'silver', geo: fg, mat: fishMat('silver'), count: 80, group: 16, spread: 4, yMin: -20, yMax: -1, speed: 2.4, scale: 0.6, flee: 5, rMin: 10, rMax: 40,
+    S({ name: 'silver', geo: fg, mat: fishMat('silver'), count: 64, group: 16, spread: 4, yMin: -20, yMax: -1, speed: 2.4, scale: 0.6, flee: 5, rMin: 10, rMax: 45,
       colors: ['#b8c8d2', '#9fb4c2', '#d6e0e6'] });
     S({ name: 'turtle', geo: turtleGeo(), mat: lambert('turtle', `
         float tph = float(gl_InstanceID) * 2.0;
@@ -427,7 +454,7 @@ export class Ambient {
             totalEmissiveRadiance += vec3(0.2, 0.7, 1.6) * row * dots * 2.0;
           }
         `,
-      }), count: 96, group: 12, spread: 5, yMin: -60, yMax: -18, speed: 1.5, scale: 0.5, flee: 3, rMin: 6, rMax: 32, colors: ['#262a36', '#1d2230'] });
+      }), count: 72, group: 12, spread: 5, yMin: -60, yMax: -18, speed: 1.5, scale: 0.5, flee: 3, rMin: 6, rMax: 32, colors: ['#262a36', '#1d2230'] });
     S({ name: 'angler', geo: anglerGeo(), mat: lambert('angler'), count: 5, yMin: -60, yMax: -24, speed: 0.5, scale: 1.3, rMin: 6, rMax: 28, turn: 0.3 });
     S({ name: 'oarfish', geo: oarGeo(), mat: lambert('oarfish', `
         float oph = float(gl_InstanceID) * 3.0;
@@ -489,10 +516,12 @@ export class Ambient {
     const cam = camera.position;
     if (cam.y > 6) return; // nothing to see from the sky
     camera.getWorldDirection(_f);
+    const fwd3 = _f.clone();
     const fwd = _f.clone();
     fwd.y = 0;
     fwd.normalize();
-    for (const s of this.species) s.update(dt, t, cam, fwd, this.frame);
+    this.bait.fwd3 = fwd3;
+    for (const s of this.species) s.update(dt, t, cam, fwd, this.frame, fwd3);
 
     // jellies: tint by depth (moon jelly -> glowing deep jelly)
     const tint = this.jelly.geometry.attributes.aTint;
@@ -508,7 +537,19 @@ export class Ambient {
 
     // firefly squid: follow the camera when it's deep, loosely
     const deepHere = cam.y < -14;
-    if (deepHere && this.ffCenter.distanceTo(cam) > 40) this.ffCenter.set(cam.x + fwd.x * 14, Math.min(cam.y, -8), cam.z + fwd.z * 14);
+    this.ffAge = (this.ffAge || 0) + dt;
+    if (deepHere && this.ffCenter.distanceTo(cam) > 45) {
+      for (let k = 0; k < 10; k++) {
+        const a = Math.random() * Math.PI * 2;
+        _v.set(cam.x + Math.cos(a) * 22, Math.min(cam.y, -8), cam.z + Math.sin(a) * 22);
+        if (!inView(_v, cam, fwd3)) {
+          this.ffCenter.copy(_v);
+          this.ffAge = 0;
+          break;
+        }
+      }
+    }
+    this.firefly.material.uniforms.uFade.value = Math.min(this.ffAge / 4, 1);
     this.ffCenter.x += Math.sin(t * 0.13) * dt * 0.8;
     this.ffCenter.z += Math.cos(t * 0.11) * dt * 0.8;
     const fp = this.firefly.geometry.attributes.position;

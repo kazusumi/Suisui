@@ -150,13 +150,17 @@ void main(){
         if (i >= uGodN) break;
         q += stepv;
         vec2 qc = clamp(q, 0.001, 0.999);
+        float dq = texture2D(tDepth, qc).x;
+        // only the surface itself (or sky through it) is a light source, never windows or signs
+        float isSurf = step(0.99999, dq);
+        if (isSurf < 0.5) isSurf = step(-0.8, worldAt(qc, dq).y);
         vec3 c = texture2D(tColor, qc).rgb;
-        float lum = dot(c, vec3(0.3, 0.55, 0.15));
-        acc += max(lum - 0.28, 0.0) * w;
+        float lum = min(dot(c, vec3(0.3, 0.55, 0.15)), 2.0);
+        acc += max(lum - 0.28, 0.0) * w * isSurf;
         w *= 0.955;
       }
       acc /= float(uGodN);
-      col += vec3(0.55, 0.85, 0.72) * acc * 1.6 * uLightOn * under * exp(-camDepth * 0.05);
+      col += vec3(0.55, 0.85, 0.72) * min(acc * 1.3, 0.35) * uLightOn * under * exp(-camDepth * 0.05);
     }
   }
   // meniscus: a thin dark/bright seam where the waterline crosses the lens
