@@ -1,0 +1,20 @@
+{
+  "name": "monster-go",
+  "version": "1.0.0",
+  "description": "MONSTER GO - Netlify DB test game (map, portals, gyms, roulette capture, admin)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@netlify/neon": "^0.1.2",
+    "leaflet": "^1.9.4",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.1"
+  }
+}

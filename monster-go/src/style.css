@@ -1,0 +1,190 @@
+@import './base.css';
+
+body.game { overflow: hidden; height: 100dvh; }
+#map { position: fixed; inset: 0; background: #1e293b; }
+.leaflet-container { font: inherit; }
+
+.hud {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: 10px;
+  right: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  z-index: 1000;
+  pointer-events: none;
+}
+.chip {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #0b1220e6;
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.player-chip { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.player-name { overflow: hidden; text-overflow: ellipsis; }
+.team-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.balls { cursor: default; margin-left: auto; }
+
+.side-buttons {
+  position: fixed;
+  right: 10px;
+  top: calc(64px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+}
+.round-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #0b1220e6;
+  font-size: 20px;
+  cursor: pointer;
+}
+.round-btn.active { background: #fbbf24; border-color: #fbbf24; }
+.test-banner {
+  position: fixed;
+  left: 10px;
+  right: 64px;
+  top: calc(64px + env(safe-area-inset-top));
+  background: #fbbf24;
+  color: #1c1917;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  z-index: 1000;
+}
+
+/* 地図上のアイコン */
+.me {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 6px #38bdf855;
+}
+.mk {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  border-radius: 50%;
+  background: #0b1220cc;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 8px #0008;
+  transition: transform 0.15s;
+}
+.mk:hover { transform: scale(1.12); }
+.mk-portal { border-color: #22d3ee; box-shadow: 0 0 12px #22d3eeaa; }
+.mk-portal.cooling { filter: grayscale(1); opacity: 0.6; }
+.mk-gym { border-radius: 10px; border-width: 3px; border-color: #94a3b8; }
+.mk-gym.team-red { border-color: var(--red); }
+.mk-gym.team-blue { border-color: var(--blue); }
+.mk-gym.team-yellow { border-color: var(--yellow); }
+.mk-spawn { background: #ffffffee; animation: bob 1.6s ease-in-out infinite; }
+.mk-spawn.rarity-rare { border-color: #a855f7; }
+.mk-spawn.rarity-legend { border-color: #f59e0b; box-shadow: 0 0 16px #f59e0b; }
+.mk-spawn.caught { opacity: 0.4; animation: none; filter: grayscale(0.8); }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+
+/* 詳細シート */
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: 520px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+  z-index: 1500;
+  box-shadow: 0 -8px 24px #0008;
+}
+.sheet-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 24px;
+  cursor: pointer;
+}
+.sheet-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; padding-right: 24px; }
+.sheet-head h2 { margin: 0; font-size: 18px; }
+.sheet-icon { font-size: 40px; }
+
+/* ルーレット */
+.roulette-card { align-items: center; text-align: center; }
+.big-emoji { font-size: 64px; display: block; }
+.roulette-name { font-weight: 700; }
+.wheel-wrap { position: relative; width: 220px; height: 220px; margin: 8px 0; }
+.wheel {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 6px solid #fff;
+  box-shadow: 0 4px 16px #0009;
+  transition: transform 3s cubic-bezier(0.15, 0.85, 0.2, 1);
+}
+.wheel-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+  text-shadow: 0 1px 3px #0008;
+  white-space: nowrap;
+}
+.wheel-pointer {
+  position: absolute;
+  left: 50%;
+  top: -10px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 14px solid transparent;
+  border-right: 14px solid transparent;
+  border-top: 26px solid #fff;
+  z-index: 2;
+  filter: drop-shadow(0 2px 2px #0008);
+}
+.roulette-msg { min-height: 1.6em; font-weight: 700; }
+.roulette-msg.win { color: var(--win); }
+.roulette-msg.lose { color: #fca5a5; }
+
+/* 図鑑 */
+.dex-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dex-list li { display: flex; align-items: center; gap: 10px; background: var(--panel-2); border-radius: 10px; padding: 8px 12px; }
+.dex-list li.missed { opacity: 0.55; }
+.dex-list li.empty { justify-content: center; color: var(--muted); }
+.dex-emoji { font-size: 28px; }
+.dex-name { flex: 1; display: flex; flex-direction: column; font-weight: 700; }
+.dex-name small, .dex-num small { color: var(--muted); font-weight: 400; font-size: 12px; }
+.dex-num { font-weight: 700; }
+
+/* 登録 */
+.logo { text-align: center; font-size: 28px; letter-spacing: 0.08em; color: var(--accent); }
+.teams { border: none; padding: 0; margin: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.teams legend { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.teams label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.teams input { width: auto; }
