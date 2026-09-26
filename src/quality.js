@@ -10,7 +10,7 @@ export const PRESETS = {
     causticIter: 4,
     shafts: 60,
     bubbles: 1600,
-    godrays: 28,
+    godrays: 20,
   },
   MEDIUM: {
     name: 'MEDIUM',
@@ -23,7 +23,7 @@ export const PRESETS = {
     causticIter: 3,
     shafts: 36,
     bubbles: 900,
-    godrays: 16,
+    godrays: 12,
   },
   LOW: {
     name: 'LOW',
