@@ -1,26 +1,35 @@
-// DB 接続の窓口。
-// - 本番（Netlify）: Netlify DB（Neon Postgres）に @netlify/neon で接続。
-//   接続先は Netlify が自動で入れる環境変数 NETLIFY_DATABASE_URL。
-// - ローカル開発: LOCAL_DATABASE_URL があれば普通の Postgres に pg で接続。
-// どちらも query(sql, params) で「行の配列」を返す同じ形にそろえている。
+// DB 接続の窓口。@netlify/database（Netlify Database の公式部品）で接続する。
+// - 本番（Netlify）: Netlify が実行時に渡す NETLIFY_DB_URL に接続。
+//   この値は環境変数の画面には表示されない。
+// - 旧方式の Netlify DB（Neon 拡張）: NETLIFY_DATABASE_URL しかない場合はそちらに接続。
+// - ローカル開発: LOCAL_DATABASE_URL があれば普通の Postgres に接続。
+// どれも query(sql, params) で「行の配列」を返す同じ形にそろえている。
+import { getDatabase } from '@netlify/database';
 
 let driverPromise;
 
+function envGet(key) {
+  return globalThis.Netlify?.env?.get(key) ?? process.env[key];
+}
+
 async function createDriver() {
-  const localUrl = process.env.LOCAL_DATABASE_URL;
-  if (localUrl) {
-    const { default: pg } = await import('pg');
-    const pool = new pg.Pool({ connectionString: localUrl, max: 3 });
-    return {
-      kind: 'local-postgres',
-      query: async (text, params = []) => (await pool.query(text, params)).rows,
-    };
+  const localUrl = envGet('LOCAL_DATABASE_URL');
+  const legacyUrl = envGet('NETLIFY_DB_URL') ? undefined : envGet('NETLIFY_DATABASE_URL');
+  const connectionString = localUrl ?? legacyUrl;
+  let db;
+  try {
+    db = getDatabase(connectionString ? { connectionString } : {});
+  } catch (e) {
+    if (e.name === 'MissingDatabaseConnectionError') {
+      throw new Error(
+        'Netlify Database が見つかりません。Netlify のプロジェクトで Database を作成してから再デプロイしてください',
+      );
+    }
+    throw e;
   }
-  const { neon } = await import('@netlify/neon');
-  const sql = neon();
   return {
-    kind: 'netlify-db',
-    query: (text, params = []) => sql.query(text, params),
+    kind: localUrl ? 'local-postgres' : legacyUrl ? 'netlify-db-legacy' : 'netlify-db',
+    query: async (text, params = []) => (await db.pool.query(text, params)).rows,
   };
 }
 

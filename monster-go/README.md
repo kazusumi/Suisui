@@ -1,7 +1,7 @@
 # MONSTER GO
 
 位置情報を使うモンスター捕獲ゲーム（Ingress / ポケGO 風）です。
-**Netlify DB（Neon Postgres）を Netlify 上で使えるかどうかを試す**ために作りました。
+**Netlify Database（Netlify の Postgres データベース）を Netlify 上で使えるかどうかを試す**ために作りました。
 
 - 🎮 ゲーム画面 `/` … 地図の上のポータル・ジム・モンスターをタップして遊ぶ
 - ✏️ 管理画面 `/admin/` … ポータル・ジム・モンスター・出現地点の登録／編集／削除
@@ -25,12 +25,13 @@
 ## 仕組み
 
 ```
-ブラウザ ──fetch──▶ /api/*（Netlify Functions: netlify/functions/api.mjs）──▶ Netlify DB（Neon Postgres）
+ブラウザ ──fetch──▶ /api/*（Netlify Functions: netlify/functions/api.mjs）──▶ Netlify Database（Postgres）
 ```
 
 - 画面：Vite + Leaflet（地図は OpenStreetMap）
 - API：Netlify Functions 1 本で `/api/*` をすべて受けます
-- DB：`@netlify/neon` で接続します。接続先は Netlify が自動で設定する環境変数 `NETLIFY_DATABASE_URL` です
+- DB：公式部品 `@netlify/database` で接続します。接続先は、Netlify が実行時に渡す `NETLIFY_DB_URL` です（環境変数の画面には表示されません）
+  - 旧方式の Netlify DB（Neon 拡張）の `NETLIFY_DATABASE_URL` しかない場合は、そちらにつなぎます
 - テーブルは初回アクセス時に自動で作成し、モンスター 8 種類の初期データも入れます（SQL を手で実行する必要はありません）
 
 ### テーブル
@@ -52,28 +53,33 @@
 1. Netlify の管理画面（app.netlify.com）で **Add new project（Add new site）→ Import an existing project** を選ぶ
 2. GitHub の `kazusumi/Suisui` を選ぶ
 3. 設定画面で次のように入力する
-   - **Branch to deploy**：公開したいブランチ
+   - **Branch to deploy**：`main`
+     ⚠️ このリポジトリは GitHub の「デフォルトブランチ」が `main` ではないため、何もしないと別のブランチ（`monster-go` フォルダがない）が選ばれてデプロイが失敗します。
+     あとから直す場合は Project configuration → Build & deploy → Branches and deploy contexts → Configure → **Production branch** を `main` にして保存します
+     （Chrome の自動翻訳では「生産部門」と表示されます）
    - **Base directory**：`monster-go` ← **ここが重要です**
    - Build command / Publish directory は `monster-go/netlify.toml` の内容が使われるので空欄のままで大丈夫です
 4. デプロイする
 
-### 2. Netlify DB を用意する
+### 2. Netlify Database を作る
 
-`package.json` に `@netlify/neon` が入っているので、多くの場合は **最初のデプロイで Netlify がデータベースを自動で作成**します。
+1. プロジェクトのトップ画面で「Project navigation ▼」から **Database** を開く
+2. 入力欄（AI エージェントに頼む欄）には何も書かず、その下の **「Or create a database manually instead」** をタップ
+   → 空のデータベースが作られます。表（テーブル）とモンスターの初期データは、ゲームへの最初のアクセスで自動的に作られます
+3. 「Your database is ready!」と出れば完了です
 
-確認のしかた：
-
-- サイトの **Project configuration（Site configuration）→ Environment variables** に `NETLIFY_DATABASE_URL` があれば準備完了です
-- 見当たらない場合は、サイトの **Extensions** から Neon を有効にするか、Netlify CLI で `netlify db init` を実行してください
-
-> ⚠️ 自動で作られた DB は、そのままにしておくと一定期間（目安は 7 日）で削除される仕組みになっています。
-> 残したい場合は、Netlify の画面の案内に従って Neon のアカウントと接続（claim）してください。
-> 画面の表記は Netlify の更新で変わることがあります。
+> 💡 環境変数の一覧には、DB の接続先は**表示されません**。これは正常です。
+> 新しい方式では、接続先 `NETLIFY_DB_URL` はサイトが動くときに Netlify から直接渡されます。
+>
+> 💡 DB は 5 分間使われないと眠ります（節約のため）。しばらく放置したあとの最初のアクセスは数秒遅くなることがあります。
 
 ### 3. 管理画面のパスワードを設定する
 
-1. **Environment variables** に `ADMIN_PASSWORD` を追加する（値は好きなパスワード）
-2. 設定を反映するために **Deploys → Trigger deploy** で再デプロイする
+1. Project configuration → **Environment variables** → **Add a variable** → **Add a single variable**
+2. Key に `ADMIN_PASSWORD`、Values に好きなパスワードを入れる
+   - 「Contains secret values」にチェックを入れると、パスワードが画面に表示されなくなります（おすすめ）。あとから見返せなくなるので、パスワードは控えておいてください
+   - チェックを入れると Scopes が自動で「Specific scopes（Builds / Functions / Runtime）」に切り替わりますが、そのままで大丈夫です
+3. **Create variable** で保存し、設定を反映するために再デプロイする（Deploys → Trigger deploy）
 
 ### 4. 動作確認
 
@@ -82,7 +88,7 @@
    （もちろん 1 つずつ手で登録することもできます。地図をクリックすると緯度・経度が入ります）
 3. `https://（サイト名）.netlify.app/` を開いてゲームを遊ぶ
 4. `/admin/db.html` で、遊んだ結果が `players` / `captures` / `hacks` などに入っていることを確認する
-   左上に「接続先：Netlify DB（Neon Postgres）」と表示されていれば、Netlify DB を使えています
+   左上に「接続先：Netlify Database」と表示されていれば、Netlify Database を使えています
 
 ## 手元で動かす（開発用）
 
@@ -96,9 +102,7 @@ npm run dev
 ```
 
 `npm run dev` だけで画面と API の両方が動きます（開発サーバーが `/api/*` を関数に渡します）。
-`LOCAL_DATABASE_URL` があるときはローカルの Postgres を、ないときは Netlify DB を使います。
-
-Netlify CLI を使う場合は、`netlify link` でサイトとつないでから `netlify dev` を実行すると、Netlify DB に直接つながります（このときは `.env` の `LOCAL_DATABASE_URL` を消してください）。
+`LOCAL_DATABASE_URL` があるときはローカルの Postgres を、ないときは Netlify Database（`NETLIFY_DB_URL`）を使います。
 
 ## ファイル構成
 
