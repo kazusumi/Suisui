@@ -180,6 +180,38 @@ export class Audio {
     src.stop(t + 0.8);
   }
 
+  // audio for movie recording
+  stream() {
+    if (!this.ctx) return null;
+    if (!this.recDest) {
+      this.recDest = this.ctx.createMediaStreamDestination();
+      this.master.connect(this.recDest);
+    }
+    return this.recDest.stream;
+  }
+
+  shutter() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    for (const [dt, f] of [
+      [0, 2400],
+      [0.07, 1600],
+    ]) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer(0.08);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0, t + dt);
+      g.gain.linearRampToValueAtTime(0.5, t + dt + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dt + 0.06);
+      src.connect(bp).connect(g).connect(ctx.destination);
+      src.start(t + dt);
+    }
+  }
+
   bubble() {
     if (!this.ctx) return;
     const ctx = this.ctx;

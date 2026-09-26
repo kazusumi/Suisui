@@ -34,7 +34,8 @@
           <div><kbd>MOUSE</kbd> 視点</div>
           <div><kbd>SPACE</kbd> 浮上　<kbd>SHIFT</kbd> 潜水</div>
           <div><kbd>T</kbd> ツアー切替　<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 視点　<kbd>P</kbd> 一時停止</div>
-          <div><kbd>ESC</kbd> メニュー</div>
+          <div><kbd>O</kbd> 写真モード　<kbd>R</kbd> 録画　<kbd>L</kbd> ギャラリー　<kbd>F</kbd> 乗り物に乗る</div>
+          <div><kbd>ESC</kbd> マウス解除（ボタン操作）</div>
         </div>
         <div class="help mobile">
           <div>左：スティックで泳ぐ</div>
@@ -48,6 +49,9 @@
     <div id="hud" class="hidden">
       <div id="depth"><span id="depthVal">SURFACE</span></div>
       <div class="hud-right">
+        <button class="hud-btn" id="btnPhoto" title="写真モード">📷</button>
+        <button class="hud-btn" id="btnRec" title="ムービー録画">🎥</button>
+        <button class="hud-btn" id="btnGallery" title="ギャラリー">🖼<span id="galCount"></span></button>
         <button class="hud-btn" id="btnQuality" title="Quality">HIGH</button>
         <button class="hud-btn" id="btnSound" title="Sound">♪</button>
         <button class="hud-btn" id="btnMenu" title="Menu">☰</button>
@@ -69,8 +73,55 @@
           </div>
         </div>
       </div>
+      <button id="rideBtn" class="hidden"></button>
+      <div id="ridebar" class="hidden">
+        <span id="rideName"></span>
+        <button class="hud-btn" id="btnExitRide">降りる</button>
+      </div>
+      <div id="dial" class="hidden"><div id="dialKnob"><i></i><i></i><i></i></div><small>ぐるぐる回して！</small></div>
+      <div id="recInd" class="hidden"><b></b><span id="recTime">0:00</span><button id="btnRecStop">■ 停止</button></div>
       <div id="hint">クリックで操作開始 · WASDで泳ぐ · SHIFTで潜る</div>
       <div id="fps"></div>
+    </div>
+
+    <div id="photoui" class="hidden">
+      <div class="ph-top">
+        <div class="seg" id="filters">
+          <button data-f="0" class="sel">そのまま</button>
+          <button data-f="1">鮮やか</button>
+          <button data-f="2">フィルム</button>
+          <button data-f="3">モノクロ</button>
+          <button data-f="4">ゆめ</button>
+          <button data-f="5">シネマ</button>
+        </div>
+      </div>
+      <div class="ph-side">
+        <button class="hud-btn" id="btnFreeze">⏸ 時間を止める</button>
+        <button class="hud-btn" id="btnPhotoClose">✕ 閉じる</button>
+      </div>
+      <button id="shutter" title="撮影"></button>
+      <div id="phHint">クリック / Enter で撮影 · G フィルター · H 時間停止 · ESC で操作</div>
+      <div id="thumbToast" class="hidden"><img alt="" /></div>
+    </div>
+    <div id="flash"></div>
+
+    <div id="gallery" class="hidden">
+      <div class="gal-head">
+        <h2>ギャラリー</h2>
+        <span id="galInfo"></span>
+        <button class="hud-btn" id="btnGalClose">✕</button>
+      </div>
+      <div id="galGrid"></div>
+      <p class="gal-note">写真と動画はこのブラウザの中に保存されています。ブラウザのデータを消すと消えるので、残したいものは「保存」してください。</p>
+    </div>
+    <div id="viewer" class="hidden">
+      <div id="viewerMedia"></div>
+      <div class="viewer-bar">
+        <button class="hud-btn" id="vDownload">⬇ 保存</button>
+        <button class="hud-btn" id="vShare">共有</button>
+        <button class="hud-btn" id="vDelete">🗑 削除</button>
+        <button class="hud-btn" id="vClose">✕ 閉じる</button>
+      </div>
     </div>
 
     <div id="touchui" class="hidden">

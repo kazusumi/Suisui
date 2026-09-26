@@ -5,7 +5,7 @@ import { terrainHeight } from './world/terrain.js';
 
 const EYE = 0.2;
 const RADIUS = 0.55;
-const BOUNDS = { x0: -140, x1: 140, z0: -240, z1: 175 };
+const BOUNDS = { x0: -140, x1: 140, z0: -325, z1: 175 };
 
 export class Player {
   constructor(camera, colliders) {

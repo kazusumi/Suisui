@@ -10,6 +10,27 @@ const col = (hex) => new THREE.Color(hex);
 export const PARK = { x: -45, z: -180, r: 30 };
 export const MERRY = { x: -30, z: -196 };
 export const CUPS = { x: -62, z: -197 };
+export const WHEEL = { x: -45, z: -180, rotY: 0.35, tilt: 0.05, R: 15 };
+
+// Roller coaster: closed loop west of the park that dives under and leaps out of the water.
+export const COASTER = [
+  [-72, 1.0, -150], [-72, 6, -165], [-74, 14, -180], [-78, 10, -192], [-84, -8, -205],
+  [-90, -12, -217], [-98, -5, -225], [-104, 7, -214], [-105, 4, -199], [-101, -9, -186],
+  [-98, -6, -173], [-102, 6, -160], [-98, 3, -146], [-88, -6, -137], [-80, -2.5, -140],
+];
+export function coasterDistance(x, z) {
+  let best = Infinity;
+  const n = COASTER.length;
+  for (let i = 0; i < n; i++) {
+    const [ax, , az] = COASTER[i];
+    const [bx, , bz] = COASTER[(i + 1) % n];
+    const dx = bx - ax;
+    const dz = bz - az;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+    best = Math.min(best, Math.hypot(x - ax - dx * t, z - az - dz * t));
+  }
+  return best;
+}
 
 export function buildExtras(ctx) {
   const { B, signs, glow, addCollider, R, landmarks } = ctx;
@@ -202,6 +223,7 @@ export function buildExtras(ctx) {
     signs.quad(x, y + 3.6, z, 3.4, 0.9, 0, hSignUV(si), 2.4, true);
   }
   landmarks.push({ name: '遊園地', x: P.x, z: P.z - 8, color: '#ff9ad5' });
+  landmarks.push({ name: 'ジェットコースター', x: -92, z: -182, color: '#ffcf4a', left: true });
 
   // ---------- helpers exposed for the shotengai ----------
   function banner(x, z, vi) {

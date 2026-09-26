@@ -8,8 +8,9 @@ export const PRESETS = {
     fish: 1,
     seaweed: 1,
     causticIter: 4,
-    shafts: 16,
-    bubbles: 500,
+    shafts: 60,
+    bubbles: 1600,
+    godrays: 28,
   },
   MEDIUM: {
     name: 'MEDIUM',
@@ -20,8 +21,9 @@ export const PRESETS = {
     fish: 0.65,
     seaweed: 0.6,
     causticIter: 3,
-    shafts: 10,
-    bubbles: 300,
+    shafts: 36,
+    bubbles: 900,
+    godrays: 16,
   },
   LOW: {
     name: 'LOW',
@@ -32,8 +34,9 @@ export const PRESETS = {
     fish: 0.35,
     seaweed: 0.35,
     causticIter: 2,
-    shafts: 6,
-    bubbles: 150,
+    shafts: 18,
+    bubbles: 450,
+    godrays: 0,
   },
 };
 
