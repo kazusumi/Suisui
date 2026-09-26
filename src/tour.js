@@ -11,7 +11,7 @@ export const ROUTE = [
   [-102, -34], [-80, -34], [-50, -34], [-18, -34], [4, -38], [22, -42], [36, -42], [46, -42],
   [50, -31], [61, -27], [73, -31], [78, -43], [72, -55], [60, -59], [52, -70],
   [38, -84], [6, -84], [0, -100], [2, -118], [8, -134], [14, -150], [4, -178],
-  [-18, -200], [-42, -208], [-56, -220], [-40, -232], [0, -234], [42, -228], [82, -205],
+  [-18, -200], [-42, -208], [-56, -220], [-44, -242], [-22, -266], [0, -292], [26, -276], [48, -250], [82, -214],
   [108, -168], [114, -120], [114, -60], [114, 0], [108, 42], [80, 84], [40, 118],
 ];
 
@@ -37,6 +37,7 @@ export const LANDMARKS = [
   { name: '学校', x: 84, z: -12, color: '#f2ead6' },
   { name: 'SUISUIタワー', x: 22, z: -100, color: '#6fe7ff' },
   { name: '沈んだバス', x: 12, z: -163, color: '#9fe0c4' },
+  { name: '深海の海溝', x: 0, z: -292, color: '#5a7cff' },
 ];
 
 export const VIEWS = {
@@ -70,7 +71,8 @@ export class Tour {
       // submarine cruising depth: ~2 m above the floor, never deeper than 7.5 m
       // allowed a little deeper over the amusement park so the rides are visible
       const nearPark = Math.hypot(p.x + 45, p.z + 190) < 48;
-      let y = Math.min(-1.2, Math.max(terrainHeight(p.x, p.z) + 2.2, nearPark ? -11.5 : -7.5));
+      const inTrench = p.z < -238;
+      let y = Math.min(-1.2, Math.max(terrainHeight(p.x, p.z) + 2.2, inTrench ? -30 : nearPark ? -11.5 : -7.5));
       for (let pass = 0; pass < 2; pass++) {
         for (const c of colliders) {
           if (p.x < c.minX - 1.3 || p.x > c.maxX + 1.3 || p.z < c.minZ - 1.3 || p.z > c.maxZ + 1.3) continue;

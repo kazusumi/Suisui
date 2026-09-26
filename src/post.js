@@ -26,6 +26,11 @@ export class Post {
       uExposure: { value: 0.82 },
       uRes: { value: new THREE.Vector2(1, 1) },
       uDistort: { value: 1 },
+      uGodN: { value: 0 },
+      uLightUV: { value: new THREE.Vector2(0.5, 1.2) },
+      uLightOn: { value: 0 },
+      uFilter: { value: 0 },
+      uFlash: { value: 0 },
     };
     this.mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -69,6 +74,11 @@ uniform float uDrops;
 uniform float uExposure;
 uniform vec2 uRes;
 uniform float uDistort;
+uniform int uGodN;
+uniform vec2 uLightUV;
+uniform float uLightOn;
+uniform int uFilter;
+uniform float uFlash;
 varying vec2 vUv;
 ${NOISE}
 ${WAVES_GLSL}
@@ -128,6 +138,26 @@ void main(){
     float fogF = 1.0 - exp(-dist * 0.028);
     vec3 uw = mix(col * absorb, fogCol, fogF);
     col = mix(col, uw, under);
+
+    // god rays: march toward the light's screen position, gathering the bright surface
+    if (uGodN > 0 && uLightOn > 0.001){
+      vec2 dir = uLightUV - vUv;
+      vec2 stepv = dir / float(uGodN) * 0.85;
+      vec2 q = vUv + stepv * 0.5;
+      float acc = 0.0;
+      float w = 1.0;
+      for (int i = 0; i < 32; i++){
+        if (i >= uGodN) break;
+        q += stepv;
+        vec2 qc = clamp(q, 0.001, 0.999);
+        vec3 c = texture2D(tColor, qc).rgb;
+        float lum = dot(c, vec3(0.3, 0.55, 0.15));
+        acc += max(lum - 0.28, 0.0) * w;
+        w *= 0.955;
+      }
+      acc /= float(uGodN);
+      col += vec3(0.55, 0.85, 0.72) * acc * 1.6 * uLightOn * under * exp(-camDepth * 0.05);
+    }
   }
   // meniscus: a thin dark/bright seam where the waterline crosses the lens
   float seam = exp(-abs(lineD) * 220.0) * step(abs(uCamPos.y - wh), 0.6);
@@ -141,6 +171,35 @@ void main(){
   vec2 q = vUv - 0.5;
   float vig = 1.0 - dot(q, q) * (0.55 + 0.6 * under);
   col *= vig;
+  if (uFilter == 1){
+    // vivid
+    float l = dot(col, vec3(0.299, 0.587, 0.114));
+    col = clamp(mix(vec3(l), col, 1.35) * 1.05, 0.0, 1.0);
+  } else if (uFilter == 2){
+    // film: warm, lifted blacks, soft contrast, grain
+    col = col * vec3(1.06, 1.0, 0.9) * 0.92 + vec3(0.045, 0.035, 0.03);
+    col += (hash12(gl_FragCoord.xy * 0.73 + fract(uTime * 7.0) * 311.0) - 0.5) * 0.06;
+  } else if (uFilter == 3){
+    // monochrome
+    float l = dot(col, vec3(0.299, 0.587, 0.114));
+    col = vec3(pow(l, 0.95)) * vec3(1.0, 0.99, 0.96);
+  } else if (uFilter == 4){
+    // dreamy: glow the highlights, pastel tint
+    vec3 blur = vec3(0.0);
+    for (int i = 0; i < 8; i++){
+      float a = float(i) * 0.785;
+      blur += aces(texture2D(tColor, suv + vec2(cos(a), sin(a)) * 0.012).rgb * uExposure);
+    }
+    blur /= 8.0;
+    col = col + max(blur - 0.45, 0.0) * 0.9;
+    col = mix(col, col * vec3(1.02, 0.96, 1.06) + 0.04, 0.6);
+  } else if (uFilter == 5){
+    // deep blue cinema
+    float l = dot(col, vec3(0.299, 0.587, 0.114));
+    col = mix(vec3(l) * vec3(0.7, 0.95, 1.1), col, 0.55);
+    col = smoothstep(0.02, 0.98, col);
+  }
+  col = mix(col, vec3(1.0), uFlash);
   col = pow(col, vec3(1.0 / 2.2));
   col += (hash12(gl_FragCoord.xy + fract(uTime) * 100.0) - 0.5) / 255.0;
   gl_FragColor = vec4(col, 1.0);

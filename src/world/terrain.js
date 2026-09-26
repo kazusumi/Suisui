@@ -3,6 +3,7 @@ import { patchMaterial } from './patchMaterial.js';
 
 export const GROUND = -3.2;
 export const ISLAND = { x: 62, z: -42, r: 13 };
+export const TRENCH = { z0: -250, z1: -340, x: 0 };
 
 const sstep = (a, b, x) => {
   const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
@@ -19,6 +20,10 @@ export function terrainHeight(x, z) {
   const deep = sstep(-112, -142, z) * side;
   const deepH = -22 + 0.8 * Math.sin(x * 0.07) + 0.6 * Math.cos(z * 0.09);
   h = lerp(h, deepH, deep);
+  // the trench: a dark drop-off beyond the sunken district
+  const tr = sstep(-236, -268, z) * (1 - sstep(80, 115, Math.abs(x)));
+  const trH = -47 + 2.5 * Math.sin(x * 0.09 + z * 0.05) + 1.5 * Math.cos(z * 0.13) + 1.2 * Math.sin(x * 0.31);
+  h = lerp(h, trH, tr);
   // small shrine island in the park
   const di = Math.hypot(x - ISLAND.x, z - ISLAND.z);
   const isl = 1 - sstep(ISLAND.r - 5, ISLAND.r + 5, di);
@@ -28,10 +33,10 @@ export function terrainHeight(x, z) {
 
 export function createTerrain() {
   const W = 560;
-  const D = 640;
+  const D = 720;
   const geo = new THREE.PlaneGeometry(W, D, 170, 194);
   geo.rotateX(-Math.PI / 2);
-  geo.translate(0, 0, -40);
+  geo.translate(0, 0, -80);
   const p = geo.attributes.position;
   const colors = new Float32Array(p.count * 3);
   const c = new THREE.Color();
@@ -49,6 +54,7 @@ export function createTerrain() {
     const city = sstep(80, 50, z) * side * (1 - sstep(-112, -142, z) * side);
     c.copy(sand).lerp(concrete, city);
     c.lerp(silt, sstep(-8, -20, h) * (1 - city) * 0.8 + sstep(-112, -142, z) * side * 0.6);
+    c.lerp(new THREE.Color('#2a2f3a'), sstep(-26, -42, h));
     if (h > -0.3) c.copy(grass).lerp(sand, sstep(0.6, -0.3, h));
     c.multiplyScalar(0.85 + n * 0.12);
     colors[i * 3] = c.r;
@@ -65,7 +71,7 @@ export function createTerrain() {
 
 // Bakes a data texture used by the water shader:
 //  R: water depth (0..1 => 0..25 m), G: proximity to things sticking out of the water (shore foam)
-export const BAKE = { x0: -170, x1: 170, z0: -270, z1: 190, size: 512 };
+export const BAKE = { x0: -170, x1: 170, z0: -350, z1: 190, size: 512 };
 
 export function bakeWaterData(obstacles) {
   const N = BAKE.size;

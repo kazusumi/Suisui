@@ -3,7 +3,7 @@
 import { terrainHeight } from './world/terrain.js';
 import { LANDMARKS } from './tour.js';
 
-const B = { x0: -135, x1: 135, z0: -245, z1: 150 }; // z0 is drawn at the top
+const B = { x0: -164, x1: 164, z0: -330, z1: 150 }; // z0 is drawn at the top (aspect matches the CSS box)
 const BG_W = 540;
 const BG_H = Math.round((BG_W * (B.z1 - B.z0)) / (B.x1 - B.x0));
 
@@ -52,7 +52,7 @@ export class Minimap {
         let r, gg, b;
         if (h > -0.3) [r, gg, b] = [96, 138, 82];
         else {
-          const d = Math.min(-h / 22, 1);
+          const d = Math.min(-h / 48, 1);
           r = 38 - d * 30;
           gg = 128 - d * 88;
           b = 138 - d * 62;

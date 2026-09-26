@@ -4,7 +4,7 @@ import { Builder, KIND, mat4, rng } from './builder.js';
 import { patchMaterial } from './patchMaterial.js';
 import { GROUND, ISLAND, terrainHeight } from './terrain.js';
 import { routeDistance, LANDMARKS } from '../tour.js';
-import { buildExtras, PARK } from './extras.js';
+import { buildExtras, PARK, coasterDistance } from './extras.js';
 import { SignBuilder, createSignAtlas, hSignUV, vSignUV, H_SIGNS, V_SIGNS } from './signs.js';
 
 const col = (hex) => new THREE.Color(hex);
@@ -530,6 +530,7 @@ export function createCity(quality) {
   for (let bz = -150; bz >= -226; bz -= 26) {
     for (let bx = -84; bx <= 84; bx += 28) {
       if (Math.hypot(bx - PARK.x, bz - PARK.z) < 34) continue; // amusement park plaza
+      if (coasterDistance(bx, bz) < 16) continue; // roller coaster
       const n = R() < 0.5 ? 1 : 2;
       for (let k = 0; k < n; k++) {
         const w = rand(8, 14);
@@ -573,31 +574,7 @@ export function createCity(quality) {
     const R0 = 15;
     const rim = col('#e8e2d4');
     const base = mat4(fw.x, cy, fw.z, 0, 0.35, 0.05);
-    const segs = 36;
-    for (let i = 0; i < segs; i++) {
-      const a = (i / segs) * Math.PI * 2;
-      const len = (2 * Math.PI * R0) / segs + 0.1;
-      for (const off of [-0.8, 0.8]) {
-        const m = base.clone().multiply(mat4(Math.cos(a) * R0, Math.sin(a) * R0, off, 0, 0, a));
-        B.box(m.multiply(mat4(0, -len / 2, 0)), 0.3, len, 0.3, rim);
-      }
-    }
-    for (let i = 0; i < 18; i++) {
-      const a = (i / 18) * Math.PI * 2;
-      for (const off of [-0.8, 0.8]) {
-        const m = base.clone().multiply(mat4(0, 0, off, 0, 0, a - Math.PI / 2));
-        B.box(m, 0.14, R0, 0.14, rim);
-      }
-      // gondola
-      const gx = Math.cos(a) * R0;
-      const gy = Math.sin(a) * R0;
-      const gm = base.clone().multiply(mat4(gx, gy - 2.2, 0));
-      const gc = col(pick(['#e56b5d', '#5bb3c4', '#e8c35a', '#8ac47a', '#c98ad0']));
-      B.box(gm, 1.6, 1.8, 1.6, gc, { side: [KIND.CAR, i, 0] });
-      B.box(gm.clone().multiply(mat4(0, 1.8, 0)), 0.1, 0.5, 0.1, rim);
-      const p = new THREE.Vector3(gx, gy, 0).applyMatrix4(base);
-      glow(p.x, p.y, p.z, i % 2 ? [3.0, 1.2, 1.8] : [1.2, 2.4, 3.0], 1.8);
-    }
+    // the rotating rim, spokes and gondolas live in fx/rides.js
     B.box(base.clone().multiply(mat4(0, -0.8, 0, Math.PI / 2, 0, 0)), 1.6, 1.6, 1.6, col('#8f8a7e'));
     for (const s of [-1, 1])
       for (const k of [-1, 1]) {
