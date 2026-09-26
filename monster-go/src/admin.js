@@ -83,6 +83,12 @@ function initMap() {
     const c = map.getCenter();
     localStorage.setItem('mg.adminCenter', JSON.stringify([c.lat, c.lng]));
   });
+  // 開いた人の現在地を中心にする（取れなければ前回の位置のまま）
+  navigator.geolocation?.getCurrentPosition(
+    (p) => map.setView([p.coords.latitude, p.coords.longitude], 16),
+    () => {},
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+  );
 }
 
 function savedCenter() {
