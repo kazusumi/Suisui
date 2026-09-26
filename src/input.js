@@ -20,13 +20,23 @@ export class Input {
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
 
+    // tour mode: the route drives, all input only turns the head
+    this.tourMode = false;
+    this.dragging = false;
     canvas.addEventListener('click', () => {
-      if (this.enabled && !this.isTouch && document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
+      if (this.enabled && !this.tourMode && !this.isTouch && document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
     });
+    canvas.addEventListener('mousedown', (e) => {
+      if (this.enabled && this.tourMode && e.button === 0) this.dragging = true;
+    });
+    addEventListener('mouseup', () => (this.dragging = false));
     addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === canvas) {
         this.look.x += e.movementX * 0.0022 * this.sensitivity;
         this.look.y += e.movementY * 0.0022 * this.sensitivity;
+      } else if (this.dragging) {
+        this.look.x += e.movementX * 0.0035 * this.sensitivity;
+        this.look.y += e.movementY * 0.0035 * this.sensitivity;
       }
     });
 
@@ -38,8 +48,8 @@ export class Input {
       if (!this.enabled) return;
       this.isTouch = true;
       for (const t of e.changedTouches) {
-        if (t.target.closest && t.target.closest('.tbtn, .hud-btn, #menu')) continue;
-        if (t.clientX < innerWidth * 0.45 && this.touch.stickId === null) {
+        if (t.target.closest && t.target.closest('.tbtn, .hud-btn, #menu, #modebar, #minimap')) continue;
+        if (!this.tourMode && t.clientX < innerWidth * 0.45 && this.touch.stickId === null) {
           this.touch.stickId = t.identifier;
           this.touch.sx = t.clientX;
           this.touch.sy = t.clientY;
@@ -151,5 +161,6 @@ export class Input {
     this.touch.stickId = this.touch.lookId = null;
     this.touch.x = this.touch.y = 0;
     this.btnUp = this.btnDown = false;
+    this.dragging = false;
   }
 }

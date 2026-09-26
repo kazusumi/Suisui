@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Builder, KIND, mat4, rng } from './builder.js';
 import { patchMaterial } from './patchMaterial.js';
 import { GROUND, ISLAND, terrainHeight } from './terrain.js';
+import { routeDistance } from '../tour.js';
 import { SignBuilder, createSignAtlas, hSignUV, vSignUV, H_SIGNS, V_SIGNS } from './signs.js';
 
 const col = (hex) => new THREE.Color(hex);
@@ -127,6 +128,7 @@ export function createCity(quality) {
 
   // ---------- roads ----------
   const roadGeo = [];
+  const roadRects = [];
   function road(x0, x1, z0, z1, y = GROUND + 0.02) {
     const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
     g.rotateX(-Math.PI / 2);
@@ -134,6 +136,7 @@ export function createCity(quality) {
     const uv = g.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * (x1 - x0)) / 8, (uv.getY(i) * (z1 - z0)) / 8);
     roadGeo.push(g);
+    roadRects.push([x0, x1, z0, z1]);
   }
   const white = col('#dcdad2');
   const yellow = col('#d9b43a');
@@ -168,9 +171,17 @@ export function createCity(quality) {
   B.box(mat4(-56, GROUND + 0.01, -34), 98, 0.04, 8, col('#a0705a'));
 
   // ---------- seawall promenade ----------
-  B.box(mat4(0, GROUND, 47.5), 220, 2.2, 5, col('#9a958a'));
-  for (let x = -104; x <= 104; x += 2.5) B.box(mat4(x, GROUND + 2.2, 49.6), 0.12, 1.0, 0.12, col('#6a6e70'));
-  B.box(mat4(0, GROUND + 3.15, 49.6), 212, 0.08, 0.1, col('#6a6e70'));
+  // the wall is breached where the avenue meets the sea (|x| < 7)
+  for (const s of [-1, 1]) {
+    const cx = s * 53.5;
+    B.box(mat4(cx, GROUND, 47.5), 93, 2.2, 5, col('#9a958a'));
+    B.box(mat4(s * 54, GROUND + 3.15, 49.6), 90, 0.08, 0.1, col('#6a6e70'));
+    addCollider(cx, 47.5, 93, 5, GROUND - 1, GROUND + 2.2);
+    // broken chunks at the breach
+    B.box(mat4(s * 6.2, GROUND, 46.8, 0.2 * s, 0.4, 0.3 * s), 2.4, 1.6, 3, col('#8e897e'));
+    B.box(mat4(s * 4.6, GROUND, 49.4, -0.3, 0.8 * s, 0.15), 1.6, 0.9, 1.8, col('#8e897e'));
+  }
+  for (let x = -99; x <= 99; x += 2.5) if (Math.abs(x) > 8) B.box(mat4(x, GROUND + 2.2, 49.6), 0.12, 1.0, 0.12, col('#6a6e70'));
   for (let x = -96; x <= 96; x += 16) {
     if (Math.abs(x) < 10) continue;
     B.box(mat4(x, GROUND + 2.2, 46.2), 0.18, 5.2, 0.18, col('#3d4246'));
@@ -368,12 +379,12 @@ export function createCity(quality) {
     addCollider(x, z, 2, 4.4, GROUND, GROUND + 1.7, rot);
   }
   car(-3.5, 30, 0.05);
-  car(3.4, 18, Math.PI - 0.1);
+  car(4.4, 18, Math.PI - 0.05);
   car(-3.2, -12, 0.2);
   car(3.6, -44, Math.PI + 0.05);
   car(-3.0, -70, -0.1);
   car(40, 6.5, Math.PI / 2);
-  car(-60, 5.2, -Math.PI / 2 + 0.1);
+  car(-60, 8.9, -Math.PI / 2 + 0.05);
   car(-30, -84, Math.PI / 2 + 0.3);
   car(62, -85, -Math.PI / 2);
 
@@ -606,7 +617,7 @@ export function createCity(quality) {
   group.add(createTrees(trees, surfaceObstacles, colliders));
   group.add(createWires(poles));
 
-  return { group, colliders, surfaceObstacles, glows, blinkers, spots };
+  return { group, colliders, surfaceObstacles, glows, blinkers, spots, roadRects };
 }
 
 function mergeSimple(geos) {
@@ -634,6 +645,8 @@ function mergeSimple(geos) {
 }
 
 function createTrees(list, surfaceObstacles, colliders) {
+  // keep the tour route clear of trunks and canopies
+  list = list.filter((t) => routeDistance(t.x, t.z) > 4.5);
   const group = new THREE.Group();
   const trunkGeo = new THREE.CylinderGeometry(0.16, 0.26, 1, 6);
   trunkGeo.translate(0, 0.5, 0);

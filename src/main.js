@@ -13,6 +13,8 @@ import { Post } from './post.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
+import { Tour, VIEWS } from './tour.js';
+import { Minimap } from './minimap.js';
 
 const $ = (id) => document.getElementById(id);
 const showError = (msg) => {
@@ -87,6 +89,8 @@ const post = new Post(renderer, hdrOK);
 const input = new Input(canvas, { stick: $('stick'), knob: $('knob'), up: $('btnUp'), down: $('btnDown') });
 const player = new Player(camera, city.colliders);
 const audio = new Audio();
+const tour = new Tour(city.colliders);
+const minimap = new Minimap($('minimap'), city, tour);
 
 // ---------------- quality ----------------
 function resize() {
@@ -132,15 +136,18 @@ qButtons.forEach((b) =>
   })
 );
 
-function begin() {
+const touchUI = () => isMobile || input.isTouch;
+function begin(withTour = false) {
   startEl.classList.add('fade');
   $('hud').classList.remove('hidden');
-  if (isMobile || input.isTouch) {
+  if (touchUI()) {
     $('touchui').classList.remove('hidden');
     $('hint').textContent = '左スティックで泳ぐ · 右スワイプで見回す · ▼で潜る';
-  } else {
+  } else if (!withTour && camMode === 'swim') {
     canvas.requestPointerLock?.();
   }
+  if (withTour === true && camMode !== 'tour') setMode('tour');
+  else if (camMode === 'tour') showTourHint();
   input.enabled = true;
   started = true;
   paused = false;
@@ -148,7 +155,8 @@ function begin() {
   perf.reset();
   setTimeout(() => $('hint').classList.add('gone'), 7000);
 }
-goBtn.addEventListener('click', begin);
+goBtn.addEventListener('click', () => begin(false));
+$('goTour').addEventListener('click', () => begin(true));
 
 $('btnMenu').addEventListener('click', () => {
   paused = true;
@@ -179,6 +187,82 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) input.release();
+});
+
+// ---------------- modes: free swim <-> auto tour ----------------
+let camMode = 'swim';
+const blend = { t: 1, fromPos: new THREE.Vector3(), fromQuat: new THREE.Quaternion() };
+const smoother = (x) => x * x * x * (x * (x * 6 - 15) + 10);
+function startBlend() {
+  blend.t = 0;
+  blend.fromPos.copy(camera.position);
+  blend.fromQuat.copy(camera.quaternion);
+}
+function showTourHint() {
+  const hint = $('hint');
+  hint.textContent = touchUI() ? 'スワイプで見回す · 下のボタンで視点と速度' : 'ドラッグで見回す · 1/2/3で視点 · Pで一時停止';
+  hint.classList.remove('gone');
+  clearTimeout(showTourHint.t);
+  showTourHint.t = setTimeout(() => hint.classList.add('gone'), 6000);
+}
+function setMode(m) {
+  if (m === camMode) return;
+  startBlend();
+  camMode = m;
+  const touring = m === 'tour';
+  input.tourMode = touring;
+  input.release();
+  document.body.classList.toggle('touring', touring);
+  $('tourbar').classList.toggle('hidden', !touring);
+  $('btnMode').textContent = touring ? '🏊 自由に泳ぐ' : '🧭 ツアー';
+  if (touring) {
+    document.exitPointerLock?.();
+    tour.enterFrom(camera);
+    syncTourUI();
+    showTourHint();
+  } else {
+    // drop into the water right where the camera is
+    const p = camera.position;
+    const surf = waveHeight(p.x, p.z, time);
+    player.pos.set(p.x, Math.min(p.y, surf + 0.2), p.z);
+    player.vel.set(0, 0, 0);
+    const e = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    player.yaw = e.y;
+    player.pitch = THREE.MathUtils.clamp(e.x, -1.2, 1.2);
+    const hint = $('hint');
+    hint.textContent = touchUI() ? '左スティックで泳ぐ · ▼で潜る' : 'クリックして WASD で泳ぐ · SHIFTで潜る';
+    hint.classList.remove('gone');
+    clearTimeout(showTourHint.t);
+    showTourHint.t = setTimeout(() => hint.classList.add('gone'), 5000);
+  }
+}
+function syncTourUI() {
+  document.querySelectorAll('#views button').forEach((b) => b.classList.toggle('sel', b.dataset.v === tour.view));
+  document.querySelectorAll('#speeds button').forEach((b) => b.classList.toggle('sel', Number(b.dataset.s) === tour.speedIdx));
+}
+$('btnMode').addEventListener('click', () => setMode(camMode === 'tour' ? 'swim' : 'tour'));
+document.querySelectorAll('#views button').forEach((b) =>
+  b.addEventListener('click', () => {
+    tour.setView(b.dataset.v);
+    syncTourUI();
+  })
+);
+document.querySelectorAll('#speeds button').forEach((b) =>
+  b.addEventListener('click', () => {
+    tour.setSpeed(Number(b.dataset.s));
+    syncTourUI();
+  })
+);
+addEventListener('keydown', (e) => {
+  if (!started || paused) return;
+  if (e.code === 'KeyT') setMode(camMode === 'tour' ? 'swim' : 'tour');
+  if (camMode !== 'tour') return;
+  const views = ['sub', 'boat', 'air'];
+  if (['Digit1', 'Digit2', 'Digit3'].includes(e.code)) tour.setView(views[Number(e.code.slice(5)) - 1]);
+  if (e.code === 'KeyP') tour.setSpeed(tour.speedIdx === 0 ? 2 : 0);
+  if (e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'BracketRight') tour.setSpeed(Math.max(1, tour.speedIdx + 1));
+  if (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.code === 'BracketLeft') tour.setSpeed(tour.speedIdx - 1);
+  syncTourUI();
 });
 
 // ---------------- adaptive performance ----------------
@@ -233,8 +317,22 @@ function frame() {
     input.look.x = input.look.y = 0;
     if (!started) player.yaw = Math.sin(time * 0.06) * 0.22 + 0.08;
   }
-  player.update(dt, time, input);
+  if (camMode === 'tour') {
+    if (!paused) tour.update(dt, time, input, camera);
+  } else {
+    player.update(dt, time, input);
+  }
+  // every mode switch glides from the old camera pose to the new one
+  if (blend.t < 1) {
+    blend.t = Math.min(1, blend.t + dt / 3);
+    const e = smoother(blend.t);
+    camera.position.lerpVectors(blend.fromPos, camera.position, e);
+    camera.quaternion.slerpQuaternions(blend.fromQuat, camera.quaternion.clone(), e);
+  }
   camera.updateMatrixWorld();
+  const touring = camMode === 'tour';
+  const fxPos = touring ? camera.position : player.pos;
+  const fxSpeed = touring ? tour.speed : player.speed;
 
   const surf = waveHeight(camera.position.x, camera.position.z, time);
   const rel = camera.position.y - surf;
@@ -267,11 +365,11 @@ function frame() {
 
   sky.position.copy(camera.position);
   water.update(camera);
-  fish.update(dt, time, player.pos, player.speed);
-  bubbles.update(dt, time, player.pos);
+  fish.update(dt, time, fxPos, fxSpeed);
+  bubbles.update(dt, time, fxPos);
   birds.update(time);
-  floaters.update(dt, time, player.pos);
-  audio.update(dt, under, depth, started ? player.speed : 0);
+  floaters.update(dt, time, fxPos);
+  audio.update(dt, under, depth, started && !touring ? player.speed : 0, Math.max(0, rel));
 
   // reflection pass (above water only)
   U.uCamUnder.value = 0;
@@ -281,7 +379,8 @@ function frame() {
   post.uniforms.uUnder.value = under ? 1 : 0;
   post.render(scene, camera);
 
-  depthEl.textContent = under ? `DEPTH ${depth.toFixed(1)} m` : 'SURFACE';
+  depthEl.textContent = under ? `DEPTH ${depth.toFixed(1)} m` : rel > 4 ? `ALT ${rel.toFixed(0)} m` : 'SURFACE';
+  if (started) minimap.draw(camera, touring);
   perf.tick(dt);
   requestAnimationFrame(frame);
 }
@@ -296,7 +395,8 @@ requestAnimationFrame(() => {
   frame();
   goBtn.disabled = false;
   goBtn.textContent = 'DIVE IN';
+  $('goTour').disabled = false;
 });
 
 // debug hook for automated checks (only with ?debug in the URL)
-if (location.search.includes('debug')) window.__sc = { player, camera, applyQuality, begin, renderer, scene, post };
+if (location.search.includes('debug')) window.__sc = { player, camera, applyQuality, begin, renderer, scene, post, tour, setMode, VIEWS, blend };
