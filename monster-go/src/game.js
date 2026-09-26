@@ -1,11 +1,15 @@
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { Map as MapLibre, Marker, setWorkerUrl } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+// 地図の描画用 Worker を Vite に1ファイルへまとめさせ、その URL を MapLibre に渡す
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import './style.css';
 import { api, TEAM_LABEL, TEAM_COLOR, RARITY_LABEL, escapeHtml, distanceM, toast } from './api.js';
 
 const REACH_M = 80; // この距離以内ならハック・捕獲できる
 const RELOAD_MOVE_M = 300; // これ以上動いたら周辺データを読み直す
 const DEFAULT_POS = { lat: 35.681236, lng: 139.767125 }; // 位置情報が使えない時（東京駅）
+const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty'; // 無料・APIキー不要
+const PITCH = 60; // 地図の傾き（0 で真上から）
 
 const $ = (s) => document.querySelector(s);
 const state = {
@@ -18,49 +22,92 @@ const state = {
   selected: null,
 };
 
-// ---------- 地図 ----------
-const map = L.map('map', { zoomControl: false, attributionControl: true }).setView(DEFAULT_POS, 17);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '&copy; OpenStreetMap contributors',
-}).addTo(map);
-const worldLayer = L.layerGroup().addTo(map);
-const meMarker = L.marker(DEFAULT_POS, {
-  icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
-  zIndexOffset: 1000,
-  interactive: false,
+// ---------- 地図（MapLibre：傾けた 3D 表示） ----------
+setWorkerUrl(workerUrl);
+const map = new MapLibre({
+  container: 'map',
+  style: MAP_STYLE,
+  center: [DEFAULT_POS.lng, DEFAULT_POS.lat],
+  zoom: 17,
+  pitch: PITCH,
+  maxPitch: 70,
+  attributionControl: { compact: true },
 });
-const reachCircle = L.circle(DEFAULT_POS, {
-  radius: REACH_M, color: '#38bdf8', weight: 1, fillOpacity: 0.08, interactive: false,
+
+map.on('load', () => {
+  addBuildings3d();
+  // 操作できる範囲（80 m）の円
+  map.addSource('reach', { type: 'geojson', data: circleGeoJson(state.pos ?? DEFAULT_POS, REACH_M) });
+  map.addLayer({ id: 'reach-fill', type: 'fill', source: 'reach', paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'reach-line', type: 'line', source: 'reach', paint: { 'line-color': '#38bdf8', 'line-width': 1.5 } });
 });
+
+// スタイルに立体の建物がなければ、建物データから立ち上げる
+function addBuildings3d() {
+  const layers = map.getStyle().layers ?? [];
+  if (layers.some((l) => l.type === 'fill-extrusion')) return;
+  if (!map.getSource('openmaptiles')) return;
+  map.addLayer({
+    id: 'mg-buildings-3d',
+    type: 'fill-extrusion',
+    source: 'openmaptiles',
+    'source-layer': 'building',
+    minzoom: 14,
+    paint: {
+      'fill-extrusion-color': '#cbd5e1',
+      'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 10],
+      'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+      'fill-extrusion-opacity': 0.85,
+    },
+  });
+}
+
+function circleGeoJson(center, radiusM, steps = 64) {
+  const coords = [];
+  const dLat = radiusM / 111320;
+  const dLng = radiusM / (111320 * Math.cos((center.lat * Math.PI) / 180));
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    coords.push([center.lng + dLng * Math.cos(a), center.lat + dLat * Math.sin(a)]);
+  }
+  return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] }, properties: {} };
+}
 
 map.on('dragstart', () => (state.followMe = false));
 map.on('click', (e) => {
-  if (state.testMode) setPos({ lat: e.latlng.lat, lng: e.latlng.lng });
+  if (state.testMode) setPos({ lat: e.lngLat.lat, lng: e.lngLat.lng });
   closeSheet();
 });
 
-function icon(html, cls) {
-  return L.divIcon({ className: '', html: `<div class="mk ${cls}">${html}</div>`, iconSize: [40, 40], iconAnchor: [20, 20] });
+// MapLibre はマーカー要素そのものの transform を使うので、見た目は内側の要素に付ける
+function makeMarker(obj, html, cls, onClick) {
+  const el = document.createElement('div');
+  el.innerHTML = `<div class="mk ${cls}">${html}</div>`;
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    onClick();
+  });
+  return new Marker({ element: el }).setLngLat([obj.lng, obj.lat]).addTo(map);
 }
 
+const meEl = document.createElement('div');
+meEl.innerHTML = '<div class="me"></div>';
+const meMarker = new Marker({ element: meEl });
+let worldMarkers = [];
+
 function renderWorld() {
-  worldLayer.clearLayers();
+  worldMarkers.forEach((m) => m.remove());
+  worldMarkers = [];
   for (const p of state.world.portals) {
     const cooling = p.ready_at && new Date(p.ready_at) > new Date();
-    L.marker([p.lat, p.lng], { icon: icon('💠', `mk-portal${cooling ? ' cooling' : ''}`) })
-      .on('click', () => openSheet('portal', p))
-      .addTo(worldLayer);
+    worldMarkers.push(makeMarker(p, '💠', `mk-portal${cooling ? ' cooling' : ''}`, () => openSheet('portal', p)));
   }
   for (const g of state.world.gyms) {
-    L.marker([g.lat, g.lng], { icon: icon('🏟️', `mk-gym team-${g.team || 'none'}`) })
-      .on('click', () => openSheet('gym', g))
-      .addTo(worldLayer);
+    worldMarkers.push(makeMarker(g, '🏟️', `mk-gym team-${g.team || 'none'}`, () => openSheet('gym', g)));
   }
   for (const s of state.world.spawns) {
-    L.marker([s.lat, s.lng], { icon: icon(escapeHtml(s.emoji), `mk-spawn rarity-${s.rarity}${s.caught ? ' caught' : ''}`) })
-      .on('click', () => openSheet('spawn', s))
-      .addTo(worldLayer);
+    const cls = `mk-spawn rarity-${s.rarity}${s.caught ? ' caught' : ''}`;
+    worldMarkers.push(makeMarker(s, escapeHtml(s.emoji), cls, () => openSheet('spawn', s)));
   }
 }
 
@@ -86,9 +133,9 @@ async function loadWorld() {
 function setPos(pos) {
   state.pos = pos;
   localStorage.setItem('mg.lastPos', JSON.stringify(pos));
-  meMarker.setLatLng(pos).addTo(map);
-  reachCircle.setLatLng(pos).addTo(map);
-  if (state.followMe) map.panTo(pos);
+  meMarker.setLngLat([pos.lng, pos.lat]).addTo(map);
+  map.getSource('reach')?.setData(circleGeoJson(pos, REACH_M));
+  if (state.followMe) map.easeTo({ center: [pos.lng, pos.lat] });
   if (!state.loadedAt || distanceM(state.loadedAt, pos) > RELOAD_MOVE_M) loadWorld();
   if (state.selected) openSheet(state.selected.kind, state.selected.obj);
 }
@@ -138,7 +185,7 @@ $('#testBtn').addEventListener('click', () => {
 });
 $('#locateBtn').addEventListener('click', () => {
   state.followMe = true;
-  if (state.pos) map.setView(state.pos, Math.max(map.getZoom(), 17));
+  if (state.pos) map.easeTo({ center: [state.pos.lng, state.pos.lat], zoom: Math.max(map.getZoom(), 17), pitch: PITCH });
 });
 
 // ---------- プレイヤー ----------

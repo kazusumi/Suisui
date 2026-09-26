@@ -2,7 +2,7 @@
 
 body.game { overflow: hidden; height: 100dvh; }
 #map { position: fixed; inset: 0; background: #1e293b; }
-.leaflet-container { font: inherit; }
+.maplibregl-map { font: inherit; }
 
 .hud {
   position: fixed;
