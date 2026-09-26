@@ -1,35 +1,39 @@
 import { defineConfig, loadEnv } from 'vite';
 import { resolve } from 'node:path';
 
-// 開発時だけ /api/* を Netlify Function (netlify/functions/api.mjs) に流す。
+// /api/* を Netlify Function (netlify/functions/api.mjs) に流す（開発サーバーとプレビューの両方）。
 // netlify-cli が無くても `npm run dev` でゲーム・管理画面・API が一通り動く。
 function netlifyFunctionsDev() {
+  const useApi = (server) => {
+    server.middlewares.use(async (req, res, next) => {
+      if (!req.url.startsWith('/api/')) return next();
+      try {
+        const mod = server.ssrLoadModule
+          ? await server.ssrLoadModule('/netlify/functions/api.mjs')
+          : await import('./netlify/functions/api.mjs');
+        const chunks = [];
+        for await (const c of req) chunks.push(c);
+        const body = chunks.length ? Buffer.concat(chunks) : undefined;
+        const request = new Request(`http://localhost${req.url}`, {
+          method: req.method,
+          headers: req.headers,
+          body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
+        });
+        const response = await mod.default(request, {});
+        res.statusCode = response.status;
+        response.headers.forEach((v, k) => res.setHeader(k, v));
+        res.end(Buffer.from(await response.arrayBuffer()));
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ error: String(e?.message || e) }));
+      }
+    });
+  };
   return {
     name: 'netlify-functions-dev',
-    configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (!req.url.startsWith('/api/')) return next();
-        try {
-          const mod = await server.ssrLoadModule('/netlify/functions/api.mjs');
-          const chunks = [];
-          for await (const c of req) chunks.push(c);
-          const body = chunks.length ? Buffer.concat(chunks) : undefined;
-          const request = new Request(`http://localhost${req.url}`, {
-            method: req.method,
-            headers: req.headers,
-            body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
-          });
-          const response = await mod.default(request, {});
-          res.statusCode = response.status;
-          response.headers.forEach((v, k) => res.setHeader(k, v));
-          res.end(Buffer.from(await response.arrayBuffer()));
-        } catch (e) {
-          res.statusCode = 500;
-          res.setHeader('content-type', 'application/json');
-          res.end(JSON.stringify({ error: String(e?.message || e) }));
-        }
-      });
-    },
+    configureServer: useApi,
+    configurePreviewServer: useApi,
   };
 }
 
@@ -40,8 +44,10 @@ export default defineConfig(({ mode }) => {
   }
   return {
     plugins: [netlifyFunctionsDev()],
+    worker: { format: 'es' },
     build: {
       target: 'es2020',
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
         input: {
           main: resolve(import.meta.dirname, 'index.html'),
