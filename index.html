@@ -25,11 +25,15 @@
           <button data-q="MEDIUM">MEDIUM</button>
           <button data-q="LOW">LOW</button>
         </div>
-        <button id="go" disabled>LOADING…</button>
+        <div class="gos">
+          <button id="go" disabled>LOADING…</button>
+          <button id="goTour" disabled>ツアーで眺める</button>
+        </div>
         <div class="help desktop">
           <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 泳ぐ</div>
           <div><kbd>MOUSE</kbd> 視点</div>
           <div><kbd>SPACE</kbd> 浮上　<kbd>SHIFT</kbd> 潜水</div>
+          <div><kbd>T</kbd> ツアー切替　<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 視点　<kbd>P</kbd> 一時停止</div>
           <div><kbd>ESC</kbd> メニュー</div>
         </div>
         <div class="help mobile">
@@ -47,6 +51,23 @@
         <button class="hud-btn" id="btnQuality" title="Quality">HIGH</button>
         <button class="hud-btn" id="btnSound" title="Sound">♪</button>
         <button class="hud-btn" id="btnMenu" title="Menu">☰</button>
+      </div>
+      <canvas id="minimap"></canvas>
+      <div id="modebar">
+        <button class="hud-btn mode" id="btnMode">🧭 ツアー</button>
+        <div id="tourbar" class="hidden">
+          <div class="seg" id="views">
+            <button data-v="sub">潜水艦</button>
+            <button data-v="boat" class="sel">船</button>
+            <button data-v="air">上空</button>
+          </div>
+          <div class="seg" id="speeds">
+            <button data-s="0" title="一時停止">❚❚</button>
+            <button data-s="1">ゆっくり</button>
+            <button data-s="2" class="sel">ふつう</button>
+            <button data-s="3">はやい</button>
+          </div>
+        </div>
       </div>
       <div id="hint">クリックで操作開始 · WASDで泳ぐ · SHIFTで潜る</div>
       <div id="fps"></div>

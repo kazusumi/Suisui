@@ -216,14 +216,14 @@ export class Audio {
     src.stop(t + 0.6);
   }
 
-  update(dt, under, depth, speed) {
+  update(dt, under, depth, speed, alt = 0) {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
     this.under += ((under ? 1 : 0) - this.under) * Math.min(dt * 8, 1);
     const u = this.under;
     this.ear.frequency.setTargetAtTime(under ? 520 - Math.min(depth, 20) * 12 : 18000, t, 0.05);
-    this.aboveGain.gain.setTargetAtTime(1 - u * 0.85, t, 0.05);
+    this.aboveGain.gain.setTargetAtTime((1 - u * 0.85) * (0.35 + 0.65 * Math.exp(-alt / 20)), t, 0.3);
     this.belowGain.gain.setTargetAtTime(u * (0.8 + Math.min(depth, 20) * 0.02), t, 0.08);
 
     if (t > this.nextChord) {
