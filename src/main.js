@@ -8,7 +8,9 @@ import { createCity } from './world/city.js';
 import { Water } from './world/water.js';
 import { createGlows, glowScale } from './fx/glows.js';
 import { createSnow, Bubbles, createShafts } from './fx/particles.js';
-import { Fish, createSeaweed, Birds, Floaters } from './fx/life.js';
+import { Fish, createSeaweed, Birds, Floaters, fishGeometry } from './fx/life.js';
+import { Rides } from './fx/rides.js';
+import { WhaleShark, Rays, Dolphins, Splashes, SurfaceBirds, SwanBoats, JumpingFish, FloatingBooks } from './fx/sealife.js';
 import { Post } from './post.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -82,6 +84,22 @@ const seaweedMax = seaweed.count;
 const birds = new Birds(14);
 const floaters = new Floaters(city.colliders);
 scene.add(snow, bubbles.points, shafts, fish.mesh, seaweed, birds.mesh, floaters.group);
+
+const rides = new Rides();
+const whaleShark = new WhaleShark();
+const rays = new Rays();
+const splashes = new Splashes();
+// a leap or a jumping fish close by is also heard
+const splashNear = (x, z, gain) => {
+  const d = Math.hypot(x - camera.position.x, z - camera.position.z);
+  if (d < 40) audio.splash(gain * Math.max(0.15, 1 - d / 40));
+};
+const dolphins = new Dolphins(splashes, (x, z) => splashNear(x, z, 0.8));
+const surfaceBirds = new SurfaceBirds(city.colliders);
+const swans = new SwanBoats();
+const jumpers = new JumpingFish(fishGeometry(), splashes, (x, z) => splashNear(x, z, 0.35));
+const books = new FloatingBooks(city.bookSpot);
+scene.add(rides.group, whaleShark.mesh, rays.mesh, splashes.points, dolphins.mesh, surfaceBirds.group, swans.mesh, jumpers.mesh, books.mesh);
 
 const post = new Post(renderer, hdrOK);
 
@@ -369,11 +387,20 @@ function frame() {
   bubbles.update(dt, time, fxPos);
   birds.update(time);
   floaters.update(dt, time, fxPos);
+  rides.update(time);
+  whaleShark.update(dt, time);
+  rays.update(dt, time);
+  dolphins.update(dt, time);
+  surfaceBirds.update(dt, time, fxPos);
+  swans.update(dt, time);
+  jumpers.update(dt, time, camera);
+  books.update(dt, time);
+  splashes.update(dt);
   audio.update(dt, under, depth, started && !touring ? player.speed : 0, Math.max(0, rel));
 
   // reflection pass (above water only)
   U.uCamUnder.value = 0;
-  water.renderReflection(renderer, scene, camera, [water.mesh, snow, bubbles.points, shafts, fish.mesh, seaweed, terrain]);
+  water.renderReflection(renderer, scene, camera, [water.mesh, snow, bubbles.points, shafts, fish.mesh, seaweed, terrain, rides.group, whaleShark.mesh, rays.mesh]);
   U.uCamUnder.value = under ? 1 : 0;
 
   post.uniforms.uUnder.value = under ? 1 : 0;
@@ -399,4 +426,5 @@ requestAnimationFrame(() => {
 });
 
 // debug hook for automated checks (only with ?debug in the URL)
-if (location.search.includes('debug')) window.__sc = { player, camera, applyQuality, begin, renderer, scene, post, tour, setMode, VIEWS, blend };
+if (location.search.includes('debug')) window.__sc = { player, camera, applyQuality, begin, renderer, scene, post, tour, setMode, VIEWS, blend, whaleShark, dolphins, city, rays, swans };
+if (location.search.includes('debug')) import('./tour.js').then((m) => (window.__lm = m.LANDMARKS));

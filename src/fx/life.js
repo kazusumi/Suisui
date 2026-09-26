@@ -16,7 +16,7 @@ const _c = new THREE.Color();
 const _q2 = new THREE.Quaternion();
 
 // ---------------- fish ----------------
-function fishGeometry() {
+export function fishGeometry() {
   const body = new THREE.SphereGeometry(0.5, 10, 6);
   body.scale(0.2, 0.36, 1);
   const tail = new THREE.BufferGeometry();

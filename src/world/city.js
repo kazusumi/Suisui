@@ -3,10 +3,13 @@ import * as THREE from 'three';
 import { Builder, KIND, mat4, rng } from './builder.js';
 import { patchMaterial } from './patchMaterial.js';
 import { GROUND, ISLAND, terrainHeight } from './terrain.js';
-import { routeDistance } from '../tour.js';
+import { routeDistance, LANDMARKS } from '../tour.js';
+import { buildExtras, PARK } from './extras.js';
 import { SignBuilder, createSignAtlas, hSignUV, vSignUV, H_SIGNS, V_SIGNS } from './signs.js';
 
 const col = (hex) => new THREE.Color(hex);
+// square crop of the clock face inside its 256x96 atlas cell (col 2, row 4)
+const CLOCK_UV = [(512 + 84) / 1024, 1 - (384 + 92) / 2048, (512 + 172) / 1024, 1 - (384 + 4) / 2048];
 
 const PALETTE = [
   '#e3d6b8', '#d99a86', '#9cc3b0', '#93aec4', '#dcb56a', '#e8e4da', '#a8604c', '#7c8ea3',
@@ -190,11 +193,14 @@ export function createCity(quality) {
     addCollider(x, 46.2, 0.4, 0.4, GROUND, GROUND + 7.4);
   }
 
+  const extras = buildExtras({ B, signs, glow, addCollider, R, landmarks: LANDMARKS });
+  let bookSpot = null;
+
   // ---------- districts ----------
   const houseH = () => (R() < 0.25 ? rand(12, 18) : rand(6, 11));
   // front blocks (between promenade and street C)
   for (const side of [-1, 1]) {
-    const xa = side < 0 ? -100 : 11;
+    const xa = side < 0 ? -100 : 24;
     const xb = side < 0 ? -11 : 100;
     rowX(xa, xb, 42, 1, { wMin: 7, wMax: 13, dMin: 8, dMax: 12, h: houseH, lit: 0.18 });
     rowX(xa, xb, 13, -1, {
@@ -218,9 +224,27 @@ export function createCity(quality) {
   let hIdx = 0;
   let vIdx = 0;
   const shopSigns = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 24, 26, 27, 28];
+  let hasYaoya = false;
+  let hasBooks = false;
   const onShop = (cx, zFront, w, h, facing) => {
     const rot = facing > 0 ? 0 : Math.PI;
     const zf = zFront + facing * 0.08;
+    if (!hasYaoya && facing < 0 && cx > -62 && w > 5.5) {
+      hasYaoya = true;
+      extras.yaoya(cx, zFront, w, facing);
+      return;
+    }
+    if (!hasBooks && facing > 0 && cx > -48 && w > 5.5) {
+      hasBooks = true;
+      bookSpot = extras.bookstore(cx, zFront, w, facing);
+      return;
+    }
+    // some shops closed for good: shutters down
+    if (R() < 0.25) {
+      B.box(mat4(cx, GROUND, zFront + facing * 0.06, 0, rot, 0), w - 0.8, 2.7, 0.08, col('#9a9c9e'), { front: [KIND.SHUTTER, 0, 0], side: [KIND.SHUTTER, 0, 0] });
+    }
+    // banners
+    if (R() < 0.35) extras.banner(cx - w / 2 + 0.5, zFront + facing * 2.3, 16 + Math.floor(R() * 8));
     const si = shopSigns[hIdx++ % shopSigns.length];
     const neon = !!H_SIGNS[si].neon;
     // sign just above the ground-floor windows (right at the waterline)
@@ -235,7 +259,7 @@ export function createCity(quality) {
     });
     // vertical projecting sign
     if (R() < 0.6 && h > 6) {
-      const vi = vIdx++ % V_SIGNS.length;
+      const vi = vIdx++ % 16;
       const vx = cx + (w / 2 - 0.6) * (R() < 0.5 ? -1 : 1);
       const vy = GROUND + 4.8 + rand(0, 1.2);
       signs.quad(vx, vy, zFront + facing * 0.9, 0.8, 3.2, rot + Math.PI / 2, vSignUV(vi), V_SIGNS[vi].neon ? 2.4 : 0.9, true);
@@ -252,7 +276,7 @@ export function createCity(quality) {
   };
   rowX(-100, -11, -27, -1, { wMin: 6, wMax: 9, dMin: 9, dMax: 11, h: () => rand(7, 10.5), kind: () => KIND.SHOP, lit: 0.3, gapMin: 0.2, gapMax: 0.8, onFront: onShop });
   rowX(-100, -11, -41, 1, { wMin: 6, wMax: 9, dMin: 9, dMax: 12, h: () => rand(7, 11), kind: () => KIND.SHOP, lit: 0.3, gapMin: 0.2, gapMax: 0.8, onFront: onShop });
-  rowX(-100, -11, -1, 1, { wMin: 8, wMax: 14, dMin: 9, dMax: 13, h: () => rand(9, 20), lit: 0.2 });
+  rowX(-100, -24, -1, 1, { wMin: 8, wMax: 14, dMin: 9, dMax: 13, h: () => rand(9, 20), lit: 0.2 });
   rowX(-100, -11, -77, -1, { wMin: 8, wMax: 14, dMin: 10, dMax: 14, h: () => rand(10, 22), lit: 0.2 });
 
   // arcade frames over the shopping street + paper lanterns
@@ -264,6 +288,13 @@ export function createCity(quality) {
     B.box(mat4(x, GROUND + 7.95, -34, 0, 0, 0), 0.2, 0.9, 0.2, arc);
     addCollider(x, -37.6, 0.5, 0.5, GROUND, GROUND + 7.6);
     addCollider(x, -30.4, 0.5, 0.5, GROUND, GROUND + 7.6);
+    // hanging signs from every other arcade frame
+    if (((-x - 14) / 8) % 2 === 1) {
+      const si = [16, 40, 47, 1, 12, 13][Math.floor(R() * 6)];
+      B.box(mat4(x, GROUND + 7.1, -34.9), 0.04, 0.5, 0.04, arc);
+      B.box(mat4(x, GROUND + 7.1, -33.1), 0.04, 0.5, 0.04, arc);
+      signs.quad(x, GROUND + 6.7, -34, 3.0, 0.8, Math.PI / 2, hSignUV(si), 1.3, true);
+    }
     if (x > -96) {
       for (const lz of [-35.6, -32.4]) {
         B.box(mat4(x - 4, GROUND + 5.4, lz), 0.5, 0.75, 0.5, col('#d4432e'));
@@ -343,8 +374,8 @@ export function createCity(quality) {
   }
   // stop sign + bus stop
   signs.quad(8.8, GROUND + 2.3, 16, 1.0, 0.45, 0, hSignUV(23), 0.9, true);
-  signs.quad(-8.8, GROUND + 2.6, -60, 1.1, 0.5, Math.PI / 2, hSignUV(25), 0.9, true);
-  B.box(mat4(-8.8, GROUND, -60), 0.1, 2.4, 0.1, poleCol);
+  signs.quad(-8.8, GROUND + 2.6, -46.8, 1.1, 0.5, Math.PI / 2, hSignUV(25), 0.9, true);
+  B.box(mat4(-8.8, GROUND, -46.8), 0.1, 2.4, 0.1, poleCol);
 
   // vending machines on the avenue sidewalks (they glow under water)
   for (const [vx, vz, rot] of [
@@ -396,8 +427,8 @@ export function createCity(quality) {
   B.box(mat4(20, GROUND, -10), 1.4, 9.5, 1.4, col('#c9c1b0'));
   B.box(mat4(20, GROUND + 9.5, -10), 2.2, 2.2, 2.2, col('#b8ad98'));
   B.box(mat4(20, GROUND + 11.7, -10), 2.6, 0.3, 2.6, col('#5d4b3e'));
-  signs.quad(20, GROUND + 10.6, -8.88, 1.9, 1.9, 0, [0.5 + 0.02, 1 - 480 / 1024 + 0.005, 0.75 - 0.02, 1 - 384 / 1024 - 0.005], 1.1);
-  signs.quad(18.88, GROUND + 10.6, -10, 1.9, 1.9, -Math.PI / 2, [0.5 + 0.02, 1 - 480 / 1024 + 0.005, 0.75 - 0.02, 1 - 384 / 1024 - 0.005], 1.1);
+  signs.quad(20, GROUND + 10.6, -8.88, 1.9, 1.9, 0, CLOCK_UV, 1.1);
+  signs.quad(18.88, GROUND + 10.6, -10, 1.9, 1.9, -Math.PI / 2, CLOCK_UV, 1.1);
   addCollider(20, -10, 2.2, 2.2, GROUND, GROUND + 12);
   // playground (fully submerged)
   const play = col('#d9533f');
@@ -498,7 +529,7 @@ export function createCity(quality) {
   const deepCols = PALETTE.map((c) => c.clone().multiplyScalar(0.8));
   for (let bz = -150; bz >= -226; bz -= 26) {
     for (let bx = -84; bx <= 84; bx += 28) {
-      if (Math.hypot(bx + 45, bz + 180) < 26) continue; // ferris wheel plaza
+      if (Math.hypot(bx - PARK.x, bz - PARK.z) < 34) continue; // amusement park plaza
       const n = R() < 0.5 ? 1 : 2;
       for (let k = 0; k < n; k++) {
         const w = rand(8, 14);
@@ -617,7 +648,7 @@ export function createCity(quality) {
   group.add(createTrees(trees, surfaceObstacles, colliders));
   group.add(createWires(poles));
 
-  return { group, colliders, surfaceObstacles, glows, blinkers, spots, roadRects };
+  return { group, colliders, surfaceObstacles, glows, blinkers, spots, roadRects, bookSpot, cityMat };
 }
 
 function mergeSimple(geos) {
