@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>MONSTER GO</title>
+  </head>
+  <body class="game">
+    <div id="map"></div>
+
+    <header class="hud">
+      <button class="chip player-chip" id="playerChip" type="button">
+        <span class="team-dot"></span><span class="player-name">---</span>
+      </button>
+      <div class="chip balls" title="ボール">🔴 <b id="ballCount">0</b></div>
+      <button class="chip" id="dexBtn" type="button">📖 図鑑</button>
+    </header>
+
+    <div class="side-buttons">
+      <button class="round-btn" id="locateBtn" type="button" title="現在地に戻る">📍</button>
+      <button class="round-btn" id="testBtn" type="button" title="テストモード">🧪</button>
+    </div>
+    <div class="test-banner" id="testBanner" hidden>🧪 テストモード：地図をタップするとそこへ移動（距離制限なし）</div>
+
+    <!-- タップしたポータル／ジム／モンスターの詳細 -->
+    <section class="sheet" id="sheet" hidden>
+      <button class="sheet-close" type="button" aria-label="閉じる">×</button>
+      <div class="sheet-body"></div>
+    </section>
+
+    <!-- 捕獲ルーレット -->
+    <div class="modal" id="rouletteModal" hidden>
+      <div class="modal-card roulette-card">
+        <div class="roulette-monster"><span class="big-emoji"></span><div class="roulette-name"></div></div>
+        <div class="wheel-wrap">
+          <div class="wheel-pointer"></div>
+          <div class="wheel"><div class="wheel-label win">GET!</div><div class="wheel-label lose">にげた</div></div>
+        </div>
+        <p class="roulette-msg"></p>
+        <div class="modal-actions">
+          <button class="btn primary" id="spinBtn" type="button">ボールを投げる（1個）</button>
+          <button class="btn" id="rouletteClose" type="button">もどる</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 図鑑 -->
+    <div class="modal" id="dexModal" hidden>
+      <div class="modal-card">
+        <h2>📖 図鑑 <small id="dexCount"></small></h2>
+        <ul class="dex-list" id="dexList"></ul>
+        <div class="modal-actions"><button class="btn" data-close type="button">とじる</button></div>
+      </div>
+    </div>
+
+    <!-- プレイヤー登録 -->
+    <div class="modal" id="loginModal" hidden>
+      <form class="modal-card" id="loginForm">
+        <h1 class="logo">MONSTER GO</h1>
+        <p class="muted">名前を決めてはじめよう。同じ名前を入れると前回の続きから遊べます。</p>
+        <label class="field">なまえ<input name="name" maxlength="20" required autocomplete="nickname" /></label>
+        <fieldset class="teams">
+          <legend>チーム（新規登録のときだけ）</legend>
+          <label><input type="radio" name="team" value="red" checked /><span class="team red">レッド</span></label>
+          <label><input type="radio" name="team" value="blue" /><span class="team blue">ブルー</span></label>
+          <label><input type="radio" name="team" value="yellow" /><span class="team yellow">イエロー</span></label>
+        </fieldset>
+        <div class="modal-actions"><button class="btn primary" type="submit">はじめる</button></div>
+      </form>
+    </div>
+
+    <script type="module" src="/src/game.js"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+# MONSTER GO 用の Netlify 設定。
+# Netlify のサイト設定で Base directory を "monster-go" にすると、
+# このファイルが使われる（リポジトリ直下の既存サイトとは独立）。
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["pg"]
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
