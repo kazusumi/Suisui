@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b1a2e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="description" content="SUBMERGED CITY — 夕暮れの水没した街を、自由に泳いで。" />
+    <title>SUBMERGED CITY</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23f29a5c'/%3E%3Crect x='14' y='18' width='10' height='30' fill='%23263345'/%3E%3Crect x='28' y='10' width='12' height='38' fill='%23263345'/%3E%3Crect x='44' y='24' width='8' height='24' fill='%23263345'/%3E%3Crect y='36' width='64' height='28' fill='%231a7a78' opacity='.9'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+
+    <div id="start">
+      <div class="panel">
+        <p class="kicker">an interactive swim</p>
+        <h1>SUBMERGED<br />CITY</h1>
+        <p class="lead">人がいなくなって、少し時間が経った街。<br />夕暮れの水面から、ゆっくり泳いでいこう。</p>
+        <div class="quality" id="quality">
+          <span>QUALITY</span>
+          <button data-q="AUTO" class="sel">AUTO</button>
+          <button data-q="HIGH">HIGH</button>
+          <button data-q="MEDIUM">MEDIUM</button>
+          <button data-q="LOW">LOW</button>
+        </div>
+        <button id="go" disabled>LOADING…</button>
+        <div class="help desktop">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 泳ぐ</div>
+          <div><kbd>MOUSE</kbd> 視点</div>
+          <div><kbd>SPACE</kbd> 浮上　<kbd>SHIFT</kbd> 潜水</div>
+          <div><kbd>ESC</kbd> メニュー</div>
+        </div>
+        <div class="help mobile">
+          <div>左：スティックで泳ぐ</div>
+          <div>右：スワイプで視点</div>
+          <div>▲ 浮上　▼ 潜水</div>
+        </div>
+        <p class="tip">🎧 ヘッドホン推奨</p>
+      </div>
+    </div>
+
+    <div id="hud" class="hidden">
+      <div id="depth"><span id="depthVal">SURFACE</span></div>
+      <div class="hud-right">
+        <button class="hud-btn" id="btnQuality" title="Quality">HIGH</button>
+        <button class="hud-btn" id="btnSound" title="Sound">♪</button>
+        <button class="hud-btn" id="btnMenu" title="Menu">☰</button>
+      </div>
+      <div id="hint">クリックで操作開始 · WASDで泳ぐ · SHIFTで潜る</div>
+      <div id="fps"></div>
+    </div>
+
+    <div id="touchui" class="hidden">
+      <div id="stick"><div id="knob"></div></div>
+      <div class="tbtns">
+        <button class="tbtn" id="btnUp">▲<small>浮上</small></button>
+        <button class="tbtn" id="btnDown">▼<small>潜水</small></button>
+      </div>
+    </div>
+
+    <div id="err" class="hidden"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
