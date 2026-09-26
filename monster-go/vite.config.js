@@ -47,7 +47,7 @@ export default defineConfig(({ mode }) => {
     worker: { format: 'es' },
     build: {
       target: 'es2020',
-      chunkSizeWarningLimit: 1200,
+      chunkSizeWarningLimit: 2000,
       rollupOptions: {
         input: {
           main: resolve(import.meta.dirname, 'index.html'),

@@ -2,6 +2,7 @@ import { Map as MapLibre, Marker, setWorkerUrl } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // 地図の描画用 Worker を Vite に1ファイルへまとめさせ、その URL を MapLibre に渡す
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { createMonsterLayer } from './monsters3d.js';
 import './style.css';
 import { api, TEAM_LABEL, TEAM_COLOR, RARITY_LABEL, escapeHtml, distanceM, toast } from './api.js';
 
@@ -34,8 +35,18 @@ const map = new MapLibre({
   attributionControl: { compact: true },
 });
 
+const monsters3d = createMonsterLayer(map);
+let monsters3dReady = false;
+
 map.on('load', () => {
   addBuildings3d();
+  try {
+    map.addLayer(monsters3d.layer);
+    monsters3dReady = !monsters3d.failed;
+  } catch (e) {
+    console.error(e);
+  }
+  renderWorld();
   // 操作できる範囲（80 m）の円
   map.addSource('reach', { type: 'geojson', data: circleGeoJson(state.pos ?? DEFAULT_POS, REACH_M) });
   map.addLayer({ id: 'reach-fill', type: 'fill', source: 'reach', paint: { 'fill-color': '#38bdf8', 'fill-opacity': 0.12 } });
@@ -80,14 +91,14 @@ map.on('click', (e) => {
 });
 
 // MapLibre はマーカー要素そのものの transform を使うので、見た目は内側の要素に付ける
-function makeMarker(obj, html, cls, onClick) {
+function makeMarker(obj, html, cls, onClick, anchor = 'center') {
   const el = document.createElement('div');
   el.innerHTML = `<div class="mk ${cls}">${html}</div>`;
   el.addEventListener('click', (e) => {
     e.stopPropagation();
     onClick();
   });
-  return new Marker({ element: el }).setLngLat([obj.lng, obj.lat]).addTo(map);
+  return new Marker({ element: el, anchor }).setLngLat([obj.lng, obj.lat]).addTo(map);
 }
 
 const meEl = document.createElement('div');
@@ -105,14 +116,20 @@ function renderWorld() {
   for (const g of state.world.gyms) {
     worldMarkers.push(makeMarker(g, '🏟️', `mk-gym team-${g.team || 'none'}`, () => openSheet('gym', g)));
   }
+  // モンスターは 3D で描く。タップ用に透明な当たり判定だけ置く（3D が使えない端末では絵文字）
+  const use3d = monsters3dReady && !monsters3d.failed;
+  monsters3d.setSpawns(use3d ? state.world.spawns : []);
   for (const s of state.world.spawns) {
-    const cls = `mk-spawn rarity-${s.rarity}${s.caught ? ' caught' : ''}`;
-    worldMarkers.push(makeMarker(s, escapeHtml(s.emoji), cls, () => openSheet('spawn', s)));
+    const cls = use3d ? 'mk-hit' : `mk-spawn rarity-${s.rarity}${s.caught ? ' caught' : ''}`;
+    const html = use3d ? '' : escapeHtml(s.emoji);
+    worldMarkers.push(makeMarker(s, html, cls, () => openSheet('spawn', s), use3d ? 'bottom' : 'center'));
   }
 }
 
+let loadingWorld = false;
 async function loadWorld() {
-  if (!state.pos) return;
+  if (!state.pos || loadingWorld) return;
+  loadingWorld = true;
   try {
     const q = new URLSearchParams({ lat: state.pos.lat, lng: state.pos.lng });
     if (state.player) q.set('player', state.player.id);
@@ -127,6 +144,8 @@ async function loadWorld() {
     }
   } catch (e) {
     toast(e.message, 'error');
+  } finally {
+    loadingWorld = false;
   }
 }
 
@@ -284,7 +303,8 @@ function openSheet(kind, obj) {
   } else {
     html = `
       <div class="sheet-head"><span class="sheet-icon">${escapeHtml(obj.emoji)}</span><div><h2>${escapeHtml(obj.name)}</h2>
-        <p class="muted">${RARITY_LABEL[obj.rarity] ?? obj.rarity} ・ 捕獲率 ${obj.catch_rate}% ・ ${text}</p></div></div>
+        <p class="muted">${RARITY_LABEL[obj.rarity] ?? obj.rarity} ・ 捕獲率 ${obj.catch_rate}% ・ ${text}
+          ・ あと約${Math.max(1, Math.ceil((new Date(obj.expires_at) - new Date()) / 60000))}分でいなくなる</p></div></div>
       ${obj.description ? `<p>${escapeHtml(obj.description)}</p>` : ''}
       ${far}
       <button class="btn primary wide" data-act="catch" ${!near || obj.caught ? 'disabled' : ''}>
@@ -360,7 +380,10 @@ $('#spinBtn').addEventListener('click', async () => {
   $('.roulette-msg').className = 'roulette-msg';
   let result;
   try {
-    result = await api('capture', { method: 'POST', body: { playerId: state.player.id, spawnId: rouletteTarget.id } });
+    result = await api('capture', {
+      method: 'POST',
+      body: { playerId: state.player.id, pointId: rouletteTarget.point_id, slot: rouletteTarget.slot },
+    });
   } catch (err) {
     spinning = false;
     $('#spinBtn').disabled = false;

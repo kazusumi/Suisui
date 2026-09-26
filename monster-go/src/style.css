@@ -100,6 +100,17 @@ body.game { overflow: hidden; height: 100dvh; }
 .mk-spawn.rarity-rare { border-color: #a855f7; }
 .mk-spawn.rarity-legend { border-color: #f59e0b; box-shadow: 0 0 16px #f59e0b; }
 .mk-spawn.caught { opacity: 0.4; animation: none; filter: grayscale(0.8); }
+/* 3D モンスターのタップ用の透明な当たり判定（足元が地点） */
+.mk.mk-hit {
+  width: 64px;
+  height: 96px;
+  border: none;
+  border-radius: 32px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+.mk.mk-hit:hover { transform: none; }
 @keyframes bob { 50% { transform: translateY(-4px); } }
 
 /* 詳細シート */

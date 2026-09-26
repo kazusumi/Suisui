@@ -19,11 +19,15 @@
 //   GET    /api/admin/db/table/:name?limit&offset&order&dir   テーブルの中身
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { query, dbKind } from '../lib/db.mjs';
+import { currentSlot, rollAppearance, SLOT_MIN } from '../lib/spawn.mjs';
 
 export const config = { path: '/api/*' };
 
 const HACK_COOLDOWN_MIN = 5;
 const WORLD_RADIUS_M = 3000;
+const AUTO_CHECK_RADIUS_M = 500; // この範囲に出現ポイントがなければ自動で作る
+const AUTO_AREA_RADIUS_M = 400; // 自動で作るときの範囲
+const MAX_POINT_RADIUS_M = 2000; // 出現ポイントの半径の上限
 const TEAMS = ['red', 'blue', 'yellow'];
 const RARITIES = ['common', 'rare', 'legend'];
 
@@ -95,7 +99,9 @@ async function world(url) {
   const box = bbox(lat, lng, WORLD_RADIUS_M);
   const inBox = (a) => `${a}.lat BETWEEN $1 AND $2 AND ${a}.lng BETWEEN $3 AND $4`;
 
-  const [portals, gyms, spawns] = await Promise.all([
+  await ensureNearby(lat, lng);
+
+  const [portals, gyms, points, monsters] = await Promise.all([
     query(
       `SELECT p.id, p.name, p.description, p.lat, p.lng,
          (SELECT max(h.created_at) FROM hacks h WHERE h.portal_id = p.id AND h.player_id = $5) AS last_hack
@@ -108,22 +114,112 @@ async function world(url) {
        WHERE ${inBox('g')}`,
       box,
     ),
+    // 出現ポイントは中心が範囲外でも半径で入ってくるので、少し広めに取る
     query(
-      `SELECT s.id, s.lat, s.lng, s.expires_at,
-         m.id AS monster_id, m.name, m.emoji, m.rarity, m.catch_rate, m.description,
-         EXISTS (SELECT 1 FROM captures c WHERE c.spawn_id = s.id AND c.player_id = $5 AND c.success) AS caught
-       FROM spawns s JOIN monsters m ON m.id = s.monster_id
-       WHERE s.active AND (s.expires_at IS NULL OR s.expires_at > now())
-         AND ${inBox('s')}`,
-      [...box, playerId],
+      `SELECT id, monster_id, lat, lng, radius_m, chance, hour_from, hour_to, active, expires_at
+       FROM spawns s WHERE s.active AND (s.expires_at IS NULL OR s.expires_at > now()) AND ${inBox('s')}`,
+      bbox(lat, lng, WORLD_RADIUS_M + MAX_POINT_RADIUS_M),
     ),
+    monsterList(),
   ]);
   const cooldownMs = HACK_COOLDOWN_MIN * 60 * 1000;
   for (const p of portals) {
     p.ready_at = p.last_hack ? new Date(new Date(p.last_hack).getTime() + cooldownMs).toISOString() : null;
     delete p.last_hack;
   }
-  return json({ portals, gyms, spawns, hackCooldownMin: HACK_COOLDOWN_MIN });
+
+  // 今のスロット（15分）に出ているモンスターを計算する
+  const slot = currentSlot();
+  const caught = new Set();
+  if (playerId && points.length) {
+    const rows = await query(
+      'SELECT spawn_id FROM captures WHERE player_id = $1 AND slot = $2 AND success',
+      [playerId, slot],
+    );
+    rows.forEach((r) => caught.add(r.spawn_id));
+  }
+  const [minLat, maxLat, minLng, maxLng] = box;
+  const spawns = [];
+  for (const point of points) {
+    const a = rollAppearance(point, slot, monsters);
+    if (!a || a.lat < minLat || a.lat > maxLat || a.lng < minLng || a.lng > maxLng) continue;
+    const m = a.monster;
+    spawns.push({
+      id: `${point.id}:${slot}`,
+      point_id: point.id,
+      slot,
+      lat: a.lat,
+      lng: a.lng,
+      expires_at: a.expiresAt.toISOString(),
+      monster_id: m.id,
+      name: m.name,
+      emoji: m.emoji,
+      rarity: m.rarity,
+      catch_rate: m.catch_rate,
+      description: m.description,
+      model_url: m.model_url,
+      caught: caught.has(point.id),
+    });
+  }
+  return json({ portals, gyms, spawns, hackCooldownMin: HACK_COOLDOWN_MIN, slotMinutes: SLOT_MIN });
+}
+
+const monsterList = () =>
+  query(
+    `SELECT id, name, emoji, rarity, catch_rate, description, spawn_weight, hour_from, hour_to, model_url
+     FROM monsters ORDER BY id`,
+  );
+
+// 周りに出現ポイントがなければ、ポケGO くらいの密度で自動生成する（ポータル・ジムも無ければ作る）
+async function ensureNearby(lat, lng) {
+  const near = bbox(lat, lng, AUTO_CHECK_RADIUS_M);
+  const inNear = 'lat BETWEEN $1 AND $2 AND lng BETWEEN $3 AND $4';
+  const [{ points, portals, gyms }] = await query(
+    `SELECT (SELECT count(*)::int FROM spawns WHERE active AND ${inNear}) AS points,
+            (SELECT count(*)::int FROM portals WHERE ${inNear}) AS portals,
+            (SELECT count(*)::int FROM gyms WHERE ${inNear}) AS gyms`,
+    near,
+  );
+  if (points && portals && gyms) return;
+  // 約500m四方のマスごとに1回だけ作る（同時にアクセスがあっても二重にならない）
+  const cell = `${Math.floor(lat / 0.005)}:${Math.floor(lng / 0.006)}`;
+  const claimed = await query('INSERT INTO auto_cells (cell) VALUES ($1) ON CONFLICT DO NOTHING RETURNING cell', [cell]);
+  if (!claimed.length) return;
+
+  const rand = randomPointIn(lat, lng, AUTO_AREA_RADIUS_M);
+  const pick = (list) => list[Math.floor(Math.random() * list.length)];
+  const code = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+  if (!points) {
+    // 12か所：多くは「おまかせ」で半径広め、いくつかはピンポイント
+    for (let i = 0; i < 12; i++) {
+      const [a, b] = rand();
+      await query(
+        `INSERT INTO spawns (monster_id, lat, lng, radius_m, chance, hour_from, hour_to, auto)
+         VALUES (NULL, $1, $2, $3, $4, 0, 24, true)`,
+        [a, b, pick([5, 20, 30, 40, 60]), pick([35, 45, 55, 65])],
+      );
+    }
+  }
+  if (!portals) {
+    for (let i = 0; i < 3; i++) {
+      const [a, b] = rand();
+      await query('INSERT INTO portals (name, description, lat, lng) VALUES ($1, $2, $3, $4)', [
+        `ポータル ${code()}`, '自動生成', a, b,
+      ]);
+    }
+  }
+  if (!gyms) {
+    const [a, b] = rand();
+    await query('INSERT INTO gyms (name, lat, lng) VALUES ($1, $2, $3)', [`ジム ${code()}`, a, b]);
+  }
+}
+
+function randomPointIn(lat, lng, radius) {
+  return () => {
+    const r = radius * Math.sqrt(Math.random());
+    const a = Math.random() * Math.PI * 2;
+    return [lat + (r * Math.cos(a)) / 111320, lng + (r * Math.sin(a)) / (111320 * Math.cos((lat * Math.PI) / 180))];
+  };
 }
 
 async function hack(req) {
@@ -154,18 +250,21 @@ async function hack(req) {
 async function capture(req) {
   const body = await readBody(req);
   const playerId = toInt(body.playerId, 'playerId');
-  const spawnId = toInt(body.spawnId, 'spawnId');
+  const pointId = toInt(body.pointId, 'pointId');
+  const slot = toInt(body.slot, 'slot');
   await getPlayer(playerId);
-  const [spawn] = await query(
-    `SELECT s.id, m.id AS monster_id, m.name, m.emoji, m.catch_rate
-     FROM spawns s JOIN monsters m ON m.id = s.monster_id
-     WHERE s.id = $1 AND s.active AND (s.expires_at IS NULL OR s.expires_at > now())`,
-    [spawnId],
+  if (slot !== currentSlot()) throw new HttpError(404, 'モンスターはどこかへ行ってしまった…');
+  const [point] = await query(
+    `SELECT id, monster_id, lat, lng, radius_m, chance, hour_from, hour_to, active, expires_at
+     FROM spawns WHERE id = $1`,
+    [pointId],
   );
-  if (!spawn) throw new HttpError(404, 'モンスターはもういないようです');
+  const appearance = point && rollAppearance(point, slot, await monsterList());
+  if (!appearance) throw new HttpError(404, 'モンスターはもういないようです');
+  const monster = appearance.monster;
   const [already] = await query(
-    'SELECT 1 FROM captures WHERE player_id = $1 AND spawn_id = $2 AND success',
-    [playerId, spawnId],
+    'SELECT 1 FROM captures WHERE player_id = $1 AND spawn_id = $2 AND slot = $3 AND success',
+    [playerId, pointId, slot],
   );
   if (already) throw new HttpError(409, 'このモンスターはもう捕まえています');
 
@@ -176,14 +275,21 @@ async function capture(req) {
   );
   if (!p) throw new HttpError(400, 'ボールがありません。ポータルをハックして補充しよう');
 
-  // ルーレットの結果はサーバーで決める（0〜99 が catch_rate 未満なら成功）
+  // 捕獲の判定はサーバーで行う。今はルーレット（0〜99 が catch_rate 未満なら成功）。
+  // クイズなど別の捕まえ方を足すときは、ここを方式ごとに切り替える
   const roll = Math.floor(Math.random() * 100);
-  const success = roll < spawn.catch_rate;
+  const success = roll < monster.catch_rate;
   await query(
-    'INSERT INTO captures (player_id, monster_id, spawn_id, success) VALUES ($1, $2, $3, $4)',
-    [playerId, spawn.monster_id, spawnId, success],
+    'INSERT INTO captures (player_id, monster_id, spawn_id, slot, success) VALUES ($1, $2, $3, $4, $5)',
+    [playerId, monster.id, pointId, slot, success],
   );
-  return json({ success, roll, catchRate: spawn.catch_rate, balls: p.balls, monster: spawn });
+  return json({
+    success,
+    roll,
+    catchRate: monster.catch_rate,
+    balls: p.balls,
+    monster: { id: monster.id, name: monster.name, emoji: monster.emoji, catch_rate: monster.catch_rate },
+  });
 }
 
 async function claimGym(req) {
@@ -231,12 +337,19 @@ const ADMIN_TABLES = {
   portals: { cols: { name: 'text', description: 'text', lat: 'num', lng: 'num' }, required: ['name', 'lat', 'lng'] },
   gyms: { cols: { name: 'text', lat: 'num', lng: 'num', team: 'team' }, required: ['name', 'lat', 'lng'] },
   monsters: {
-    cols: { name: 'text', emoji: 'text', rarity: 'rarity', catch_rate: 'rate', description: 'text' },
+    cols: {
+      name: 'text', emoji: 'text', rarity: 'rarity', catch_rate: 'rate', description: 'text',
+      spawn_weight: 'weight', hour_from: 'hour', hour_to: 'hour', model_url: 'url',
+    },
     required: ['name', 'emoji', 'catch_rate'],
   },
+  // 出現ポイント（monster_id が空なら「おまかせ」）
   spawns: {
-    cols: { monster_id: 'int', lat: 'num', lng: 'num', active: 'bool', expires_at: 'ts' },
-    required: ['monster_id', 'lat', 'lng'],
+    cols: {
+      monster_id: 'intOrNull', lat: 'num', lng: 'num', radius_m: 'radius', chance: 'pct',
+      hour_from: 'hour', hour_to: 'hour', active: 'bool', expires_at: 'ts',
+    },
+    required: ['lat', 'lng'],
   },
 };
 
@@ -253,6 +366,21 @@ function coerce(type, v, name) {
       if (n < 1 || n > 100) throw new HttpError(400, '捕獲率は 1〜100 で入力してください');
       return n;
     }
+    case 'intOrNull':
+      return v === '' || v === null || v === undefined ? null : toInt(v, name);
+    case 'weight':
+      return rangeInt(v, name, 0, 1000, '出現の重みは 0〜1000 で入力してください');
+    case 'hour':
+      return rangeInt(v, name, 0, 24, '時刻は 0〜24 で入力してください');
+    case 'pct':
+      return rangeInt(v, name, 0, 100, '出現確率は 0〜100 で入力してください');
+    case 'radius':
+      return rangeInt(v, name, 0, MAX_POINT_RADIUS_M, `半径は 0〜${MAX_POINT_RADIUS_M} m で入力してください`);
+    case 'url': {
+      const u = String(v ?? '').trim();
+      if (u && !/^(https?:\/\/|\/)/.test(u)) throw new HttpError(400, 'モデルの URL は http(s):// か / で始めてください');
+      return u;
+    }
     case 'bool':
       return v === true || v === 'true' || v === 1 || v === '1' || v === 'on';
     case 'team':
@@ -267,6 +395,12 @@ function coerce(type, v, name) {
       if (Number.isNaN(new Date(v).getTime())) throw new HttpError(400, `${name} の日時が不正です`);
       return new Date(v).toISOString();
   }
+}
+
+function rangeInt(v, name, min, max, message) {
+  const n = toInt(v, name);
+  if (n < min || n > max) throw new HttpError(400, message);
+  return n;
 }
 
 function pickCols(def, body, isCreate) {
@@ -288,7 +422,7 @@ async function adminList(table) {
   if (table === 'spawns') {
     return query(
       `SELECT s.*, m.name AS monster_name, m.emoji FROM spawns s
-       JOIN monsters m ON m.id = s.monster_id ORDER BY s.id DESC`,
+       LEFT JOIN monsters m ON m.id = s.monster_id ORDER BY s.id DESC`,
     );
   }
   if (table === 'gyms') {
@@ -339,12 +473,6 @@ async function adminGenerate(body) {
       lng + (r * Math.sin(a)) / (111320 * Math.cos((lat * Math.PI) / 180)),
     ];
   };
-  const monsters = await query('SELECT id, rarity FROM monsters');
-  if (counts.spawns && !monsters.length) throw new HttpError(400, 'モンスターが登録されていません');
-  // レアなほど出にくくする
-  const weight = { common: 6, rare: 3, legend: 1 };
-  const pool = monsters.flatMap((m) => Array(weight[m.rarity] ?? 1).fill(m.id));
-
   for (let i = 0; i < counts.portals; i++) {
     const [a, b] = rand();
     await query('INSERT INTO portals (name, description, lat, lng) VALUES ($1, $2, $3, $4)', [
@@ -359,9 +487,11 @@ async function adminGenerate(body) {
   }
   for (let i = 0; i < counts.spawns; i++) {
     const [a, b] = rand();
-    await query('INSERT INTO spawns (monster_id, lat, lng) VALUES ($1, $2, $3)', [
-      pool[Math.floor(Math.random() * pool.length)], a, b,
-    ]);
+    // 出現ポイント：モンスターは「おまかせ」、半径と確率はポケGO 風の値からランダム
+    await query(
+      'INSERT INTO spawns (monster_id, lat, lng, radius_m, chance) VALUES (NULL, $1, $2, $3, $4)',
+      [a, b, [5, 20, 30, 40, 60][Math.floor(Math.random() * 5)], [35, 45, 55, 65][Math.floor(Math.random() * 4)]],
+    );
   }
   return counts;
 }
