@@ -6,7 +6,8 @@ const $ = (s) => document.querySelector(s);
 const call = (path) => api(path, { admin: adminPassword() });
 
 const DRIVER_LABEL = {
-  'netlify-db': '接続先：Netlify DB（Neon Postgres）',
+  'netlify-db': '接続先：Netlify Database',
+  'netlify-db-legacy': '接続先：Netlify DB（旧方式・Neon）',
   'local-postgres': '接続先：ローカル Postgres（開発用）',
 };
 

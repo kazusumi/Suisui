@@ -10,8 +10,6 @@
 
 [functions]
   directory = "netlify/functions"
-  node_bundler = "esbuild"
-  external_node_modules = ["pg"]
 
 [[headers]]
   for = "/assets/*"
