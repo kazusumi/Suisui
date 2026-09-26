@@ -5,7 +5,10 @@ import { patchMaterial } from './patchMaterial.js';
 const FONT = '"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic","Meiryo",system-ui,sans-serif';
 const FONT_M = '"Hiragino Mincho ProN","Noto Serif JP","Yu Mincho",serif';
 
-// Horizontal cells: 4 cols x 8 rows of 256x96 (top 768px). Vertical: 16 cells of 64x256 (bottom 256px).
+// Atlas 1024x2048. Horizontal cells: 4 cols x 16 rows of 256x96 (top 1536px).
+// Vertical cells: 2 rows of 16 cells, 64x256 each (bottom 512px).
+const ATLAS_H = 2048;
+const V_Y0 = 1536;
 export const H_SIGNS = [
   { t: 'しおさい珈琲', bg: '#2b1a12', fg: '#ffcf8a', neon: true },
   { t: 'BOOKS 波音', bg: '#f1ead8', fg: '#1d3b52' },
@@ -39,6 +42,23 @@ export const H_SIGNS = [
   { t: '潮見台', bg: '#28323a', fg: '#e8eef0' },
   { t: 'NO SWIMMING', bg: '#f4d03f', fg: '#1a1a1a' },
   { t: 'SEA SIDE', bg: '#0a1826', fg: '#ffb86b', neon: true },
+  // 32-
+  { t: 'しおかぜマート', mart: true },
+  { t: '牛丼 なみ屋', bg: '#f28a1d', fg: '#ffffff' },
+  { t: '八百屋 みどり', bg: '#1f5a2a', fg: '#fff6b8' },
+  { t: '書店 波音堂', bg: '#1e3550', fg: '#f3ead2', mincho: true },
+  { t: 'SUISUI LAND', bg: '#1a0b24', fg: '#ff8fd8', neon: true },
+  { t: 'チケット', bg: '#f7e2a8', fg: '#b3341e' },
+  { t: '24H OPEN', bg: '#0d1a14', fg: '#5dffa8', neon: true },
+  { t: 'うまい・はやい', bg: '#fff3dc', fg: '#d9641a' },
+  { t: '本日特売', bg: '#d8261e', fg: '#fff6c8' },
+  { t: '古本 買取', bg: '#f1e6cc', fg: '#3a2a1a', mincho: true },
+  { t: 'MERRY GO ROUND', bg: '#240b1e', fg: '#ffd36b', neon: true },
+  { t: 'COFFEE CUPS', bg: '#0b1a24', fg: '#7fe8ff', neon: true },
+  { t: 'しおかぜ台', bg: '#f2f2f2', fg: '#1e5aa8' },
+  { t: '郵便', bg: '#d42a1e', fg: '#ffffff' },
+  { t: '公衆電話', bg: '#e8e8e0', fg: '#2a6b3a' },
+  { t: 'たまご・とうふ', bg: '#fff8e0', fg: '#8a4a12' },
 ];
 
 export const V_SIGNS = [
@@ -58,6 +78,15 @@ export const V_SIGNS = [
   { t: '質', bg: '#1d1d1d', fg: '#ffffff' },
   { t: '銭湯', bg: '#12305f', fg: '#ffffff' },
   { t: 'バー', bg: '#08121a', fg: '#46e0ff', neon: true },
+  // 16- : banners (のぼり旗) and more
+  { t: '大売出し', bg: '#d8261e', fg: '#ffffff' },
+  { t: '新鮮野菜', bg: '#2f8a3a', fg: '#ffffff' },
+  { t: '古本', bg: '#1e3f8a', fg: '#ffffff' },
+  { t: '牛丼', bg: '#f28a1d', fg: '#ffffff' },
+  { t: 'いらっしゃい', bg: '#f2d23a', fg: '#b3261e' },
+  { t: '朝どれ', bg: '#ffffff', fg: '#2f8a3a' },
+  { t: '営業中', bg: '#ffffff', fg: '#d8261e' },
+  { t: '商店街', bg: '#1f5fbf', fg: '#ffffff' },
 ];
 
 function drawClock(ctx, x, y, w, h) {
@@ -104,10 +133,10 @@ function fitText(ctx, text, maxW, size, family) {
 export function createSignAtlas() {
   const cv = document.createElement('canvas');
   cv.width = 1024;
-  cv.height = 1024;
+  cv.height = ATLAS_H;
   const ctx = cv.getContext('2d');
   ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, 1024, 1024);
+  ctx.fillRect(0, 0, 1024, ATLAS_H);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -116,6 +145,21 @@ export function createSignAtlas() {
     const y = Math.floor(i / 4) * 96;
     if (s.clock) {
       drawClock(ctx, x, y, 256, 96);
+      return;
+    }
+    if (s.mart) {
+      // convenience-store fascia: white with coloured bands
+      ctx.fillStyle = '#f7f7f2';
+      ctx.fillRect(x, y, 256, 96);
+      ctx.fillStyle = '#2aa35a';
+      ctx.fillRect(x, y + 8, 256, 14);
+      ctx.fillStyle = '#f29a1d';
+      ctx.fillRect(x, y + 24, 256, 8);
+      ctx.fillStyle = '#2a6fd1';
+      ctx.fillRect(x, y + 74, 256, 12);
+      fitText(ctx, s.t, 230, 34, FONT);
+      ctx.fillStyle = '#1b5e37';
+      ctx.fillText(s.t, x + 128, y + 54);
       return;
     }
     ctx.fillStyle = s.bg;
@@ -135,8 +179,8 @@ export function createSignAtlas() {
   });
 
   V_SIGNS.forEach((s, i) => {
-    const x = i * 64;
-    const y = 768;
+    const x = (i % 16) * 64;
+    const y = V_Y0 + Math.floor(i / 16) * 256;
     ctx.fillStyle = s.bg;
     ctx.fillRect(x, y, 64, 256);
     ctx.strokeStyle = s.neon ? s.fg : 'rgba(0,0,0,0.3)';
@@ -163,14 +207,17 @@ export function createSignAtlas() {
   return tex;
 }
 
-export function hSignUV(i) {
+export function hSignUV(i, inset = 0) {
   const x = (i % 4) * 256;
   const y = Math.floor(i / 4) * 96;
-  return [x / 1024, 1 - (y + 96) / 1024, (x + 256) / 1024, 1 - y / 1024];
+  const ix = inset * 256;
+  const iy = inset * 96;
+  return [(x + ix) / 1024, 1 - (y + 96 - iy) / ATLAS_H, (x + 256 - ix) / 1024, 1 - (y + iy) / ATLAS_H];
 }
 export function vSignUV(i) {
-  const x = i * 64;
-  return [x / 1024, 0, (x + 64) / 1024, 256 / 1024];
+  const x = (i % 16) * 64;
+  const y = V_Y0 + Math.floor(i / 16) * 256;
+  return [x / 1024, 1 - (y + 256) / ATLAS_H, (x + 64) / 1024, 1 - y / ATLAS_H];
 }
 
 export class SignBuilder {

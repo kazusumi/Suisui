@@ -63,6 +63,23 @@ const FACADE_FRAG = /* glsl */ `
     vec3 cans = mix(vec3(1.0, 0.3, 0.2), vec3(0.2, 0.6, 1.0), hash12(floor(vec2(fu.x / (w / 6.0), (fu.y - 1.0) / 0.22)) + vStyle.y));
     diffuseColor.rgb = mix(wall, vec3(0.9), disp);
     facadeEmissive = disp * mix(vec3(1.6, 1.7, 1.8), cans * 1.5, rows * 0.7) + btn * vec3(1.5, 0.4, 0.2);
+  } else if (kind > 6.5 && kind < 7.5){
+    // rolled-down shutter
+    float rib = 0.72 + 0.28 * step(0.45, fract(fu.y / 0.11));
+    diffuseColor.rgb = vec3(0.6, 0.62, 0.64) * rib * (0.85 + 0.25 * nz);
+  } else if (kind > 7.5 && kind < 8.5){
+    // brightly lit glass shop front (convenience store, diner, phone box)
+    float fx = fract(fu.x / 2.4);
+    float mull = step(0.035, fx) * step(fx, 0.965);
+    float glassY = step(0.12, fu.y) * step(fu.y, 2.9);
+    float glass = mull * glassY;
+    float row = floor(fu.y * 2.4);
+    float shelf = step(0.45, fract(fu.y * 2.4)) * step(fu.y, 1.9);
+    vec3 prod = mix(vec3(1.0, 0.45, 0.3), vec3(0.3, 0.75, 1.0), vnoise(vec2(fu.x * 7.0, row * 3.0)));
+    prod = mix(prod, vec3(1.0, 0.9, 0.35), step(0.7, vnoise(vec2(fu.x * 3.0 + 9.0, row))));
+    vec3 inside = vStyle.z > 0.5 ? vec3(1.5, 0.95, 0.5) : vec3(1.45, 1.55, 1.6);
+    diffuseColor.rgb = mix(wall, vec3(0.08), glass);
+    facadeEmissive = glass * mix(inside * 0.8, inside * 0.25 + prod * 0.9, shelf * 0.85) * 0.6;
   } else if (kind > 5.5 && kind < 6.5){
     float band = step(0.95, fu.y) * step(fu.y, 1.35);
     diffuseColor.rgb = mix(wall, vec3(0.05, 0.07, 0.09) + skyBase(reflect(-Vv, wN)) * 0.15, band);
@@ -87,6 +104,13 @@ const WATER_FRAG = /* glsl */ `
       vec3 wn2 = normalize((vec4(normal, 0.0) * viewMatrix).xyz);
       cw = 0.3 + 0.7 * max(wn2.y, 0.0);
     #endif
+    // sunlight loses its red on the way down: lit surfaces turn blue-green with depth (emissive untouched)
+    vec3 lightTint = mix(vec3(1.0), vec3(0.5, 0.82, 0.92), smoothstep(0.0, 4.0, wd));
+    #ifdef WP_NORMAL
+      outgoingLight = (outgoingLight - totalEmissiveRadiance) * lightTint + totalEmissiveRadiance;
+    #else
+      outgoingLight *= mix(vec3(1.0), lightTint, 0.5);
+    #endif
     float c = caustics(vWPos.xz / 7.0 + vec2(vWPos.y * 0.02), uTime * 0.55);
     float att = exp(-wd * 0.06) * smoothstep(0.0, 0.6, wd);
     outgoingLight += diffuseColor.rgb * c * att * cw * uCausticStr * vec3(0.85, 1.1, 1.0);
@@ -110,7 +134,7 @@ if (uCamUnder < 0.5){
 `;
 
 export function patchMaterial(mat, opts = {}) {
-  const { facade = false, vertexHead = '', vertexBegin = '', uniforms = {}, key = '' } = opts;
+  const { facade = false, vertexHead = '', vertexBegin = '', fragHead = '', fragColor = '', uniforms = {}, key = '' } = opts;
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = U.uTime;
     shader.uniforms.uCamUnder = U.uCamUnder;
@@ -155,6 +179,8 @@ export function patchMaterial(mat, opts = {}) {
     if (facade) {
       fs = fs.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>\n${FACADE_FRAG}`);
     }
+    if (fragColor) fs = fs.replace('#include <color_fragment>', `#include <color_fragment>\n${fragColor}`);
+    fs = fragHead + '\n' + fs;
     fs = fs.replace('#include <opaque_fragment>', `${WATER_FRAG}\n#include <opaque_fragment>`);
     fs = fs.replace('#include <fog_fragment>', HAZE_FRAG);
     shader.fragmentShader = fs;

@@ -11,7 +11,7 @@ const _e = new THREE.Euler();
 const _s = new THREE.Vector3();
 const _p = new THREE.Vector3();
 
-export const KIND = { PLAIN: 0, HOUSE: 1, OFFICE: 2, SHOP: 3, STRIPE: 4, VENDING: 5, CAR: 6 };
+export const KIND = { PLAIN: 0, HOUSE: 1, OFFICE: 2, SHOP: 3, STRIPE: 4, VENDING: 5, CAR: 6, SHUTTER: 7, STOREFRONT: 8 };
 
 export function mat4(x, y, z, rx = 0, ry = 0, rz = 0) {
   _e.set(rx, ry, rz, 'YXZ');
