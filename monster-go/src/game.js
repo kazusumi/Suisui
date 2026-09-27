@@ -453,6 +453,7 @@ document.querySelectorAll('[data-close]').forEach((b) =>
 
 // ---------- 起動 ----------
 setTestMode(state.testMode);
+if (state.testMode) toast('🧪 テストモード中：GPS ではなく前回の場所を使っています（右上の🧪で切替）');
 renderHud();
 restorePlayer();
 if (state.testMode) setPos(lastPos() ?? DEFAULT_POS);

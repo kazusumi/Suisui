@@ -25,7 +25,9 @@ export const config = { path: '/api/*' };
 
 const HACK_COOLDOWN_MIN = 5;
 const WORLD_RADIUS_M = 3000;
-const AUTO_CHECK_RADIUS_M = 500; // この範囲に出現ポイントがなければ自動で作る
+const AUTO_CHECK_RADIUS_M = 500; // この範囲の出現ポイントが少なければ自動で足す
+const AUTO_MIN_POINTS = 12; // 周りにこの数より少なければ、足りない分を足す
+const AUTO_RETRY_MIN = 10; // 同じ場所で次に足すまでの間隔（分）
 const AUTO_AREA_RADIUS_M = 400; // 自動で作るときの範囲
 const MAX_POINT_RADIUS_M = 2000; // 出現ポイントの半径の上限
 const TEAMS = ['red', 'blue', 'yellow'];
@@ -180,18 +182,25 @@ async function ensureNearby(lat, lng) {
             (SELECT count(*)::int FROM gyms WHERE ${inNear}) AS gyms`,
     near,
   );
-  if (points && portals && gyms) return;
-  // 約500m四方のマスごとに1回だけ作る（同時にアクセスがあっても二重にならない）
+  const missingPoints = Math.max(0, AUTO_MIN_POINTS - points);
+  if (!missingPoints && portals && gyms) return;
+  // 約500m四方のマスごとに、AUTO_RETRY_MIN 分に1回だけ作る（同時にアクセスがあっても二重にならない）
   const cell = `${Math.floor(lat / 0.005)}:${Math.floor(lng / 0.006)}`;
-  const claimed = await query('INSERT INTO auto_cells (cell) VALUES ($1) ON CONFLICT DO NOTHING RETURNING cell', [cell]);
+  const claimed = await query(
+    `INSERT INTO auto_cells (cell) VALUES ($1)
+     ON CONFLICT (cell) DO UPDATE SET created_at = now()
+       WHERE auto_cells.created_at < now() - make_interval(mins => $2)
+     RETURNING cell`,
+    [cell, AUTO_RETRY_MIN],
+  );
   if (!claimed.length) return;
 
   const rand = randomPointIn(lat, lng, AUTO_AREA_RADIUS_M);
   const pick = (list) => list[Math.floor(Math.random() * list.length)];
   const code = () => Math.random().toString(36).slice(2, 6).toUpperCase();
-  if (!points) {
-    // 12か所：多くは「おまかせ」で半径広め、いくつかはピンポイント
-    for (let i = 0; i < 12; i++) {
+  if (missingPoints) {
+    // 足りない分だけ足す：多くは「おまかせ」で半径広め、いくつかはピンポイント
+    for (let i = 0; i < missingPoints; i++) {
       const [a, b] = rand();
       await query(
         `INSERT INTO spawns (monster_id, lat, lng, radius_m, chance, hour_from, hour_to, auto)
