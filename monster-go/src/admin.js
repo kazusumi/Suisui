@@ -41,27 +41,37 @@ const TABS = {
       { name: 'emoji', label: '絵文字（見た目）', type: 'text', required: true, placeholder: '🐲' },
       { name: 'rarity', label: 'レア度', type: 'select', options: Object.entries(RARITY_LABEL) },
       { name: 'catch_rate', label: '捕獲率（%・ルーレットの当たりの大きさ）', type: 'number', min: 1, max: 100, required: true, value: 50 },
+      { name: 'spawn_weight', label: '出現の重み（「おまかせ」の抽選で大きいほど出やすい。目安：ふつう10・レア4・でんせつ1）', type: 'number', min: 0, max: 1000, value: 10 },
+      { name: 'hour_from', label: '出やすい時間帯：開始（時）', type: 'hour', value: 0 },
+      { name: 'hour_to', label: '出やすい時間帯：終了（時）。0〜24 は終日、18〜6 のように日またぎも可', type: 'hour', value: 24 },
+      { name: 'model_url', label: '3D モデルの URL（.glb。空なら仮のモデル）', type: 'text', placeholder: 'https://… または /models/xxx.glb' },
       { name: 'description', label: '説明', type: 'textarea' },
     ],
-    columns: ['id', 'emoji', 'name', 'rarity', 'catch_rate', 'description'],
+    columns: ['id', 'emoji', 'name', 'rarity', 'catch_rate', 'spawn_weight', 'hours', 'model_url'],
   },
   spawns: {
-    label: '出現地点',
+    label: '出現ポイント',
     fields: [
-      { name: 'monster_id', label: 'モンスター', type: 'select', options: [], required: true },
-      { name: 'lat', label: '緯度', type: 'coord', required: true },
-      { name: 'lng', label: '経度', type: 'coord', required: true },
-      { name: 'active', label: '出現中', type: 'checkbox', value: true },
-      { name: 'expires_at', label: '消える日時（空なら消えない）', type: 'datetime' },
+      { name: 'monster_id', label: 'モンスター', type: 'select', options: [] },
+      { name: 'lat', label: '中心の緯度', type: 'coord', required: true },
+      { name: 'lng', label: '中心の経度', type: 'coord', required: true },
+      { name: 'radius_m', label: '半径（m）：この範囲のどこかに出る。小さいほどピンポイント', type: 'number', min: 0, max: 2000, value: 30 },
+      { name: 'chance', label: '出現確率（%）：15分ごとに抽選', type: 'number', min: 0, max: 100, value: 50 },
+      { name: 'hour_from', label: '出る時間帯：開始（時）', type: 'hour', value: 0 },
+      { name: 'hour_to', label: '出る時間帯：終了（時）。0〜24 は終日', type: 'hour', value: 24 },
+      { name: 'active', label: '有効', type: 'checkbox', value: true },
+      { name: 'expires_at', label: 'このポイントを終了する日時（空なら無期限）', type: 'datetime' },
     ],
-    columns: ['id', 'emoji', 'monster_name', 'active', 'expires_at', 'lat', 'lng'],
-    marker: (r) => escapeHtml(r.emoji),
+    columns: ['id', 'emoji', 'monster_name', 'radius_m', 'chance', 'hours', 'active', 'lat', 'lng'],
+    marker: (r) => (r.monster_id ? escapeHtml(r.emoji) : '🎲'),
+    circle: (r) => r.radius_m,
   },
 };
 
 const COL_LABEL = {
   id: 'ID', name: '名前', description: '説明', lat: '緯度', lng: '経度', team: 'チーム', owner_name: '占領者',
-  emoji: '見た目', rarity: 'レア度', catch_rate: '捕獲率', monster_name: 'モンスター', active: '出現中', expires_at: '消える日時',
+  emoji: '見た目', rarity: 'レア度', catch_rate: '捕獲率', monster_name: 'モンスター', active: '有効', expires_at: '終了日時',
+  spawn_weight: '重み', hours: '時間帯', model_url: '3Dモデル', radius_m: '半径', chance: '確率',
 };
 
 const state = { tab: 'portals', rows: [], editing: null, monsters: [] };
@@ -127,9 +137,15 @@ function renderMarkers() {
       iconSize: [32, 32],
       iconAnchor: [16, 16],
     });
-    L.marker([r.lat, r.lng], { icon, title: r.name ?? r.monster_name })
+    L.marker([r.lat, r.lng], { icon, title: r.name ?? r.monster_name ?? 'おまかせ' })
       .on('click', () => startEdit(r))
       .addTo(markerLayer);
+    // 出現ポイントは出現範囲（半径）も円で表示する
+    if (tab.circle && tab.circle(r) > 0) {
+      L.circle([r.lat, r.lng], {
+        radius: tab.circle(r), color: '#a855f7', weight: 1, fillOpacity: 0.08, interactive: false,
+      }).addTo(markerLayer);
+    }
   }
 }
 
@@ -152,6 +168,8 @@ function fieldHtml(f, row) {
       return `<label class="field">${f.label}<input type="datetime-local" name="${f.name}" value="${v ? toLocalInput(v) : ''}" /></label>`;
     case 'coord':
       return `<label class="field half">${f.label}<input type="number" step="any" name="${f.name}" value="${v ?? ''}" ${req} /></label>`;
+    case 'hour':
+      return `<label class="field half">${f.label}<input type="number" name="${f.name}" min="0" max="24" value="${v ?? ''}" /></label>`;
     case 'number':
       return `<label class="field">${f.label}<input type="number" name="${f.name}" min="${f.min}" max="${f.max}" value="${v ?? ''}" ${req} /></label>`;
     default:
@@ -169,7 +187,7 @@ function renderForm() {
   const tab = TABS[state.tab];
   const row = state.editing;
   if (state.tab === 'spawns') {
-    tab.fields[0].options = state.monsters.map((m) => [m.id, `${m.emoji} ${m.name}`]);
+    tab.fields[0].options = [['', '🎲 おまかせ（重みと時間帯で抽選）'], ...state.monsters.map((m) => [m.id, `${m.emoji} ${m.name}`])];
   }
   $('#formTitle').textContent = row ? `${tab.label}を編集（ID ${row.id}）` : `${tab.label}を新規登録`;
   $('#editForm').innerHTML = `
@@ -246,12 +264,17 @@ async function deleteRow(row) {
 }
 
 // ---------- 一覧 ----------
-function cell(col, v) {
+function cell(col, v, row) {
+  if (col === 'hours') return row.hour_from === row.hour_to || (row.hour_from <= 0 && row.hour_to >= 24) ? '終日' : `${row.hour_from}〜${row.hour_to}時`;
+  if (col === 'monster_name' && !row.monster_id) return '🎲 おまかせ';
+  if (col === 'emoji' && 'monster_id' in row && !row.monster_id) return '<span class="emoji-cell">🎲</span>';
   if (v === null || v === undefined || v === '') return '<span class="null">—</span>';
   if (col === 'team') return `<span class="team ${escapeHtml(v)}">${TEAM_LABEL[v] ?? escapeHtml(v)}</span>`;
   if (col === 'rarity') return RARITY_LABEL[v] ?? escapeHtml(v);
   if (col === 'active') return v ? '✅' : '⛔';
-  if (col === 'catch_rate') return `${v}%`;
+  if (col === 'catch_rate' || col === 'chance') return `${v}%`;
+  if (col === 'radius_m') return `${v} m`;
+  if (col === 'model_url') return v ? '✅' : '<span class="null">仮</span>';
   if (col === 'lat' || col === 'lng') return Number(v).toFixed(5);
   if (col === 'expires_at') return new Date(v).toLocaleString('ja-JP');
   if (col === 'emoji') return `<span class="emoji-cell">${escapeHtml(v)}</span>`;
@@ -267,7 +290,7 @@ function renderList() {
     ? state.rows
         .map(
           (r) => `<tr data-id="${r.id}" class="${state.editing?.id === r.id ? 'editing' : ''}">
-            ${tab.columns.map((c) => `<td>${cell(c, r[c])}</td>`).join('')}
+            ${tab.columns.map((c) => `<td>${cell(c, r[c], r)}</td>`).join('')}
             <td class="row-actions">
               <button class="btn small" data-act="edit">編集</button>
               <button class="btn small danger" data-act="delete">削除</button>
@@ -323,7 +346,7 @@ $('#genForm').addEventListener('submit', async (e) => {
   const c = map.getCenter();
   try {
     const r = await call('admin/generate', { method: 'POST', body: { ...fd, lat: c.lat, lng: c.lng } });
-    toast(`ポータル ${r.portals}・ジム ${r.gyms}・モンスター ${r.spawns} を生成しました`);
+    toast(`ポータル ${r.portals}・ジム ${r.gyms}・出現ポイント ${r.spawns} を生成しました`);
     await loadTab();
   } catch (err) {
     toast(err.message, 'error');

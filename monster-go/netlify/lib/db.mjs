@@ -113,6 +113,41 @@ const SCHEMA = [
   )`,
   `CREATE INDEX IF NOT EXISTS captures_player_idx ON captures(player_id)`,
   `CREATE INDEX IF NOT EXISTS hacks_player_portal_idx ON hacks(player_id, portal_id, created_at)`,
+  // --- 出現の仕組み（時間帯・確率・半径）と 3D モデル用の列 ---
+  `ALTER TABLE monsters ADD COLUMN IF NOT EXISTS spawn_weight INTEGER NOT NULL DEFAULT 10`,
+  `ALTER TABLE monsters ADD COLUMN IF NOT EXISTS hour_from INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE monsters ADD COLUMN IF NOT EXISTS hour_to INTEGER NOT NULL DEFAULT 24`,
+  `ALTER TABLE monsters ADD COLUMN IF NOT EXISTS model_url TEXT NOT NULL DEFAULT ''`,
+  // spawns は「出現ポイント」になる。既存の行は「いつも同じ場所に出る」（確率100%・半径0）のまま
+  `ALTER TABLE spawns ALTER COLUMN monster_id DROP NOT NULL`,
+  `ALTER TABLE spawns ADD COLUMN IF NOT EXISTS radius_m INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE spawns ADD COLUMN IF NOT EXISTS chance INTEGER NOT NULL DEFAULT 100`,
+  `ALTER TABLE spawns ADD COLUMN IF NOT EXISTS hour_from INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE spawns ADD COLUMN IF NOT EXISTS hour_to INTEGER NOT NULL DEFAULT 24`,
+  `ALTER TABLE spawns ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE captures ADD COLUMN IF NOT EXISTS slot BIGINT`,
+  `CREATE INDEX IF NOT EXISTS captures_player_spawn_slot_idx ON captures(player_id, spawn_id, slot)`,
+  // 自動生成した場所（約500m四方のマス）を記録して、同時アクセスでも二重に作らない
+  `CREATE TABLE IF NOT EXISTS auto_cells (cell TEXT PRIMARY KEY, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+  `CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+];
+
+// 一度だけ実行する初期値の設定（schema_migrations に記録して二度と実行しない）
+const ONE_TIME = [
+  [
+    '2026-09-monster-spawn-defaults',
+    [
+      // 出現の重み：レア度が高いほど出にくい（管理画面で登録済みのモンスターにも適用）
+      `UPDATE monsters SET spawn_weight = CASE rarity WHEN 'legend' THEN 1 WHEN 'rare' THEN 4 ELSE 10 END`,
+      // 初期モンスターの出やすい時間帯（日本時間）
+      `UPDATE monsters SET hour_from = 6, hour_to = 18 WHERE name = 'モフリン'`,
+      `UPDATE monsters SET hour_from = 5, hour_to = 11 WHERE name = 'ツノウサ'`,
+      `UPDATE monsters SET hour_from = 10, hour_to = 17 WHERE name = 'ヒノコドリ'`,
+      `UPDATE monsters SET hour_from = 17, hour_to = 23 WHERE name = 'ウミマル'`,
+      `UPDATE monsters SET hour_from = 20, hour_to = 4 WHERE name = 'ヨルギツネ'`,
+      `UPDATE monsters SET hour_from = 4, hour_to = 7 WHERE name = 'ソラドラゴ'`,
+    ],
+  ],
 ];
 
 const SEED_MONSTERS = [
@@ -142,6 +177,13 @@ export function ensureSchema() {
        WHERE NOT EXISTS (SELECT 1 FROM monsters)`,
       SEED_MONSTERS.flat(),
     );
+    // 途中で失敗しても次回やり直せるよう、実行してから記録する（中身は2回実行しても同じ結果になるものだけ）
+    for (const [name, stmts] of ONE_TIME) {
+      const done = await d.query('SELECT 1 FROM schema_migrations WHERE name = $1', [name]);
+      if (done.length) continue;
+      for (const stmt of stmts) await d.query(stmt);
+      await d.query('INSERT INTO schema_migrations (name) VALUES ($1) ON CONFLICT DO NOTHING', [name]);
+    }
   })().catch((e) => {
     schemaPromise = undefined;
     throw e;
