@@ -1,0 +1,146 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>曲の解析</title>
+<!--
+  曲のテンポ（BPM）・1拍目の位置・小節ごとの音の強さを調べる開発用ページ。
+  使い方：npm run dev で開き、/scripts/analyze.html?file=/music/曲.mp3 を開く（結果は画面と window.result に出る）
+-->
+<pre id="out">解析中…</pre>
+<script type="module">
+  const file = new URLSearchParams(location.search).get('file');
+  const out = document.querySelector('#out');
+  let buf;
+  if (file === 'temp') {
+    const { buildTempSong } = await import('/src/tempSong.js');
+    buf = await buildTempSong();
+  } else {
+    const data = await (await fetch(file)).arrayBuffer();
+    buf = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(data);
+  }
+
+  // モノラルにして、低音（キック）と全体の「音の立ち上がり」の強さを 10ms ごとに出す
+  const sr = buf.sampleRate;
+  const mono = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) mono[i] += d[i] / buf.numberOfChannels;
+  }
+  const hop = Math.round(sr * 0.01);
+  const FPS = sr / hop; // 1秒あたりの区切りの数（ぴったり 100 にはならないので正確な値を使う）
+  const frames = Math.floor(mono.length / hop);
+  const energy = new Float32Array(frames);
+  const low = new Float32Array(frames);
+  let lp = 0;
+  const a = 1 - Math.exp((-2 * Math.PI * 150) / sr); // 150Hz のローパス
+  for (let f = 0; f < frames; f++) {
+    let e = 0;
+    let l = 0;
+    for (let i = f * hop; i < (f + 1) * hop; i++) {
+      e += mono[i] * mono[i];
+      lp += a * (mono[i] - lp);
+      l += lp * lp;
+    }
+    energy[f] = Math.sqrt(e / hop);
+    low[f] = Math.sqrt(l / hop);
+  }
+  const onset = (arr) => {
+    const o = new Float32Array(arr.length);
+    for (let f = 1; f < arr.length; f++) o[f] = Math.max(0, Math.log1p(arr[f] * 100) - Math.log1p(arr[f - 1] * 100));
+    return o;
+  };
+  const on = onset(energy);
+  const onLow = onset(low);
+  // 中高音（スネア・クラップ）＝全体から低音を引いたもの
+  const onMid = onset(energy.map((e, i) => Math.max(0, e - low[i])));
+
+  // テンポ：キックを重視した立ち上がりの自己相関を、1〜8拍先まで足し合わせて一番そろう間隔（70〜180 BPM）。
+  // 1拍先だけで見るとシンコペーション（付点のリズム）にだまされるので、長い周期で確かめる
+  const env = on.map((v, i) => v + 2 * onLow[i]);
+  const maxLag = (FPS * 60) / 70 * 8 + 2;
+  const ac = new Float32Array(Math.ceil(maxLag));
+  for (let lag = 1; lag < ac.length; lag++) {
+    let s = 0;
+    for (let f = 0; f + lag < frames; f++) s += env[f] * env[f + lag];
+    ac[lag] = s / (frames - lag);
+  }
+  const acAt = (x) => { const i = Math.floor(x), k = x - i; return ac[i] * (1 - k) + (ac[i + 1] ?? 0) * k; };
+  let best = { bpm: 0, score: -1 };
+  for (let bpm = 70; bpm <= 180; bpm += 0.05) {
+    const lag = (FPS * 60) / bpm;
+    let s = 0;
+    for (let k = 1; k <= 8; k++) s += acAt(lag * k);
+    if (s > best.score) best = { bpm, score: s };
+  }
+  // 半分・倍のテンポのうち 85〜150 に入るものにする
+  let bpm = best.bpm;
+  while (bpm < 85) bpm *= 2;
+  while (bpm > 150) bpm /= 2;
+  const period = (FPS * 60) / bpm; // 下で細かく合わせ直す
+
+  // 拍の位置：拍の間隔で立ち上がりを足し合わせて、一番そろう位置
+  let phase = 0, phaseScore = -1; // まずは大まかに
+  for (let p = 0; p < period; p += 0.5) {
+    let s = 0;
+    for (let k = 0; p + k * period < frames; k++) s += on[Math.round(p + k * period)];
+    if (s > phaseScore) { phaseScore = s; phase = p; }
+  }
+  // テンポと拍の位置を、曲全体で拍がいちばんそろうように細かく合わせる
+  let fine = { bpm, phase, s: -1 };
+  for (let b2 = bpm - 0.4; b2 <= bpm + 0.4; b2 += 0.01) {
+    const per = (FPS * 60) / b2;
+    for (let p = phase - 3; p <= phase + 3; p += 0.5) {
+      let s2 = 0;
+      for (let k = 0; p + k * per < frames; k++) s2 += env[Math.max(0, Math.round(p + k * per))];
+      if (s2 > fine.s) fine = { bpm: b2, phase: p, s: s2 };
+    }
+  }
+  bpm = fine.bpm;
+  phase = fine.phase;
+  // 多くの曲はテンポが整数。整数でもほぼ同じくらいそろうなら整数にする
+  const rounded = Math.round(bpm);
+  if (Math.abs(bpm - rounded) < 0.35) {
+    const per = (FPS * 60) / rounded;
+    let bestR = { p: phase, s: -1 };
+    for (let p = phase - 4; p <= phase + 4; p += 0.25) {
+      let s2 = 0;
+      for (let k = 0; p + k * per < frames; k++) s2 += env[Math.max(0, Math.round(p + k * per))];
+      if (s2 > bestR.s) bestR = { p, s: s2 };
+    }
+    if (bestR.s >= fine.s * 0.97) { bpm = rounded; phase = bestR.p; }
+  }
+  const per2 = (FPS * 60) / bpm;
+  // 小節の頭：キックが強く、スネアが弱い拍（スネアは 2・4 拍目に来ることが多い）
+  const beatsTotal = Math.floor((frames - phase) / per2);
+  const downScore = [0, 0, 0, 0];
+  const backScore = [0, 0, 0, 0];
+  for (let k = 0; k < beatsTotal; k++) {
+    const i = Math.round(phase + k * per2);
+    downScore[k % 4] += onLow[i];
+    backScore[k % 4] += onMid[i];
+  }
+  // 候補 d について：d と d+2 はキック、d+1 と d+3 はスネアのはず
+  const cand = [0, 1, 2, 3].map((d) => downScore[d] + 0.5 * downScore[(d + 2) % 4] + backScore[(d + 1) % 4] + backScore[(d + 3) % 4] - backScore[d]);
+  const down = cand.indexOf(Math.max(...cand));
+  let offsetSec = (phase + down * per2) / FPS;
+  while (offsetSec - (4 * per2) / FPS >= 0) offsetSec -= (4 * per2) / FPS;
+
+  // 小節ごとの音の強さ（構成の目安）
+  const barLen = per2 * 4;
+  const bars = [];
+  for (let b = 0; offsetSec * FPS + (b + 1) * barLen <= frames; b++) {
+    let s = 0;
+    const st = Math.round(offsetSec * FPS + b * barLen);
+    for (let f = st; f < st + barLen; f++) s += energy[f];
+    bars.push(+(s / barLen).toFixed(4));
+  }
+  const max = Math.max(...bars);
+  const result = {
+    duration: +buf.duration.toFixed(2),
+    bpm: +bpm.toFixed(2),
+    offset: +offsetSec.toFixed(3),
+    beats: Math.floor(((buf.duration - offsetSec) * bpm) / 60),
+    barLevels: bars.map((v, i) => `${String(i).padStart(2)}: ${'█'.repeat(Math.round((v / max) * 30))}`),
+  };
+  window.result = result;
+  out.textContent = JSON.stringify({ ...result, barLevels: undefined }, null, 1) + '\n' + result.barLevels.join('\n');
+</script>
