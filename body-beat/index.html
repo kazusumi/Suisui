@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>BODY BEAT</title>
+  </head>
+  <body>
+    <video id="camera" playsinline muted></video>
+    <canvas id="stage"></canvas>
+
+    <section class="overlay" id="title">
+      <div class="card">
+        <h1 class="logo">BODY<span>BEAT</span></h1>
+        <p class="lead">流れてくるノーツに、<br />手・足・体でタッチ！</p>
+        <ul class="legend">
+          <li><i class="dot L">✋</i>左手</li>
+          <li><i class="dot R">✋</i>右手</li>
+          <li><i class="dot B">👏</i>両手</li>
+          <li><i class="dot F">👣</i>足</li>
+        </ul>
+        <p class="hint">全身が映るように、カメラから 2〜3 m 離れて立ってね</p>
+        <button class="btn" id="startBtn" type="button">START</button>
+        <p class="song" id="songInfo"></p>
+      </div>
+    </section>
+
+    <section class="overlay" id="loading" hidden>
+      <div class="card"><div class="spinner"></div><p id="loadingText">準備しています…</p></div>
+    </section>
+
+    <section class="overlay" id="calibrate" hidden>
+      <div class="frame-guide"></div>
+      <p class="guide" id="guide">カメラの前に立ってね</p>
+    </section>
+
+    <section class="overlay" id="error" hidden>
+      <div class="card"><p id="errorText"></p><button class="btn" type="button" onclick="location.reload()">もう一度</button></div>
+    </section>
+
+    <section class="overlay" id="result" hidden>
+      <div class="card result">
+        <p class="label">SCORE</p>
+        <p class="score" id="rScore">0</p>
+        <dl class="stats">
+          <dt class="perfect">PERFECT</dt><dd id="rPerfect">0</dd>
+          <dt class="good">GOOD</dt><dd id="rGood">0</dd>
+          <dt class="miss">MISS</dt><dd id="rMiss">0</dd>
+          <dt>MAX COMBO</dt><dd id="rCombo">0</dd>
+          <dt>成功率</dt><dd id="rRate">0%</dd>
+        </dl>
+        <button class="btn" id="retryBtn" type="button">もう一度遊ぶ</button>
+      </div>
+    </section>
+
+    <div id="countWrap" hidden><span id="count">3</span></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
